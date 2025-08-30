@@ -355,7 +355,7 @@ export default function App() {
       task_templates: d.task_templates || [],
       messages: d.messages || [],
       feature_flags: d.feature_flags || defaultFlags(),
-      users: (d.users || []).map(u => ({
+users: (d.users || []).map(u => ({
   ...u,
   phone: u.phone || "",
   birthday: u.birthday || "",
@@ -364,8 +364,7 @@ export default function App() {
   attachments: u.attachments || [],
   notes: u.notes || ""
 })),
-} }))
-    }));
+}));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
