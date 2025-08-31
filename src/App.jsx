@@ -1580,20 +1580,11 @@ function SelfTestsPanel() {
     </div>
   );
 }
-const fmtTime = (d) => safeDate(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const fmtDateLabel = (d) => safeDate(d).toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" });
+
 
 // ---------- utilities ----------
-const uid = () => Math.random().toString(36).slice(2, 10);
-const today = () => new Date();
 
-const combineDayAndTime = (dayDate, hhmm) => {
-  const day = safeDate(dayDate);
-  const [h, m] = String(hhmm || "00:00").split(":").map((n) => Number(n) || 0);
-  const out = new Date(day);
-  out.setHours(h, m, 0, 0);
-  return out;
-};
+
 
 const minutes = (hhmm) => {
   const [h, m] = String(hhmm || "00:00").split(":").map((n) => Number(n) || 0);
@@ -2662,14 +2653,7 @@ function LoginPage({ onAfterLogin }) {
   );
 }
 
-function MyShifts({ currentUser, schedule, weekDays, positionsById }) {
-  const myShifts = (schedule?.shifts || []).filter((s) => s.user_id === currentUser.id);
-  const byDay = Object.fromEntries(weekDays.map((d) => [fmtDate(d), []]));
-  for (const s of myShifts) {
-    const k = fmtDate(s.starts_at);
-    if (!byDay[k]) byDay[k] = [];
-    byDay[k].push(s);
-  }
+
   return (
     <div className="grid gap-2 md:grid-cols-2">
       {weekDays.map((d) => (
@@ -3097,24 +3081,3 @@ function runSelfTests() {
   return tests;
 }
 
-function SelfTestsPanel() {
-  const [results] = useState(runSelfTests());
-  const passed = results.filter((r) => r.pass).length;
-  const total = results.length;
-  useEffect(() => {
-    console.table(results);
-  }, [results]);
-  return (
-    <div className="rounded-2xl border p-3">
-      <div className="mb-2 font-semibold">Self-tests</div>
-      <div className="text-sm mb-2">{passed}/{total} passed</div>
-      <ul className="text-xs space-y-1">
-        {results.map((r, i) => (
-          <li key={i} className={r.pass ? 'text-green-700' : 'text-red-700'}>
-            {r.pass ? '✔' : '✘'} {r.name}{!r.pass && r.error ? ` – ${r.error}` : ''}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
