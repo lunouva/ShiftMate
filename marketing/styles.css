@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Space+Grotesk:wght@400;500;600&display=swap');
+
+:root {
+  --bg: #f7f4ef;
+  --ink: #1c1a16;
+  --accent: #e86f52;
+  --accent-2: #0b6b55;
+  --card: #ffffff;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at top, #fff8ec, var(--bg));
+}
+
+h1, h2, h3 { font-family: "Fraunces", serif; margin: 0 0 0.5rem; }
+
+a { color: inherit; text-decoration: none; }
+
+.hero { padding: 2.5rem 6vw 4rem; }
+.nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3rem; }
+.logo { font-weight: 700; font-size: 1.25rem; }
+.nav-actions { display: flex; gap: 1rem; align-items: center; }
+.ghost { padding: 0.5rem 0.75rem; border-radius: 999px; border: 1px solid #ddd; }
+.cta { padding: 0.6rem 1rem; border-radius: 999px; background: var(--accent); color: white; font-weight: 600; }
+
+.hero-grid { display: grid; gap: 2rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: center; }
+.eyebrow { text-transform: uppercase; letter-spacing: 0.2em; font-size: 0.7rem; color: var(--accent-2); }
+.subhead { font-size: 1.1rem; line-height: 1.6; }
+.hero-actions { display: flex; gap: 1rem; margin: 1.5rem 0; }
+.proof { display: flex; gap: 1.5rem; margin-top: 2rem; }
+.metric { font-size: 1.4rem; font-weight: 700; }
+.label { font-size: 0.85rem; color: #5f5a52; }
+
+.card { background: var(--card); padding: 1.5rem; border-radius: 1.5rem; box-shadow: 0 12px 40px rgba(0,0,0,0.08); }
+.card ul { padding-left: 1rem; }
+.demo-box { margin-top: 1.5rem; border-radius: 1rem; background: #f2efe9; padding: 1rem; }
+.demo-line { height: 14px; border-radius: 999px; background: #ddd; margin-bottom: 0.6rem; }
+
+.section { padding: 3rem 6vw; }
+.grid { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.feature { background: var(--card); padding: 1.25rem; border-radius: 1.25rem; border: 1px solid #eee; }
+
+.pricing { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.price-card { background: var(--card); padding: 1.5rem; border-radius: 1.25rem; border: 1px solid #eee; }
+.price-card.highlight { border: 2px solid var(--accent); }
+.price { font-size: 1.6rem; font-weight: 700; }
+.price span { font-size: 0.9rem; font-weight: 400; }
+
+.footer { padding: 2rem 6vw; border-top: 1px solid #e6e0d8; display: flex; justify-content: space-between; }
+.muted { color: #6b655b; }
+
+@media (max-width: 600px) {
+  .nav-actions { display: none; }
+  .hero-actions { flex-direction: column; align-items: flex-start; }
+  .proof { flex-direction: column; }
+}
