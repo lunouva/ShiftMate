@@ -24,6 +24,12 @@ npm run db:init
 npm run dev
 ```
 
+## CI (GitHub Actions)
+
+There’s a ready-to-copy workflow at `docs/github-actions-ci.yml`.
+
+> Note: adding/updating `.github/workflows/*` may require a GitHub token with `workflow` scope.
+
 ## Marketing site
 
 Static landing page in `marketing/`. Open `marketing/index.html` in a browser.
