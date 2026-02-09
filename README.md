@@ -2,6 +2,8 @@
 
 Scheduling app with demo mode and a real backend (Node/Express + Postgres).
 
+License: MIT (see `LICENSE`).
+
 ## Frontend
 
 ```bash
