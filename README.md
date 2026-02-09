@@ -33,7 +33,12 @@ Server env vars are documented in `server/.env.example`.
 
 There’s a ready-to-copy workflow at `docs/github-actions-ci.yml`.
 
-To enable CI:
+Local CI-like check (frontend build + server install):
+```bash
+npm run check
+```
+
+To enable GitHub Actions CI:
 1) Create `.github/workflows/ci.yml` in the repo
 2) Copy/paste the contents of `docs/github-actions-ci.yml`
 
