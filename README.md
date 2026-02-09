@@ -32,6 +32,10 @@ Server env vars are documented in `server/.env.example`.
 
 There’s a ready-to-copy workflow at `docs/github-actions-ci.yml`.
 
+To enable CI:
+1) Create `.github/workflows/ci.yml` in the repo
+2) Copy/paste the contents of `docs/github-actions-ci.yml`
+
 > Note: adding/updating `.github/workflows/*` may require a GitHub token with `workflow` scope.
 
 ## Marketing site
