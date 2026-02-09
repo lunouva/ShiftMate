@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run build",
+    "test": "npm run check",
     "check": "npm run build && npm --prefix server ci",
 
     "server:install": "npm --prefix server ci",
