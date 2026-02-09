@@ -7,10 +7,12 @@ Scheduling app with demo mode and a real backend (Node/Express + Postgres).
 ```bash
 cd /home/kyle/projects/apps/ShiftMate
 npm install
+cp .env.example .env
 npm run dev
 ```
 
-Switch Demo/Live mode in **Settings → Backend**.
+- Switch Demo/Live mode in **Settings → Backend**.
+- In Live mode, the frontend uses `VITE_API_BASE` (defaults to `http://localhost:4000`).
 
 ## Backend
 
