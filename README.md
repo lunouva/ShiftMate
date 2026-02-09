@@ -37,7 +37,8 @@ To enable CI:
 1) Create `.github/workflows/ci.yml` in the repo
 2) Copy/paste the contents of `docs/github-actions-ci.yml`
 
-> Note: adding/updating `.github/workflows/*` may require a GitHub token with `workflow` scope.
+Note: creating/updating `.github/workflows/*` requires a GitHub token with `workflow` scope.
+If your git credential/token can’t push workflows, create the file via the GitHub web UI or use a PAT that includes `workflow` scope.
 
 ## Marketing site
 
