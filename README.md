@@ -24,6 +24,8 @@ npm run db:init
 npm run dev
 ```
 
+Server env vars are documented in `server/.env.example`.
+
 ## CI (GitHub Actions)
 
 There’s a ready-to-copy workflow at `docs/github-actions-ci.yml`.
