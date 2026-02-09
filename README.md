@@ -29,6 +29,10 @@ npm run dev
 
 Server env vars are documented in `server/.env.example`.
 
+## Release checklist
+
+See `docs/release-checklist.md`.
+
 ## CI (GitHub Actions)
 
 There’s a ready-to-copy workflow at `docs/github-actions-ci.yml`.
