@@ -8,7 +8,8 @@ License: MIT (see `LICENSE`).
 
 ```bash
 cd /home/kyle/projects/apps/ShiftMate
-npm install
+# Node 20+ recommended (see .nvmrc)
+npm ci
 cp .env.example .env
 npm run dev
 ```
@@ -20,7 +21,7 @@ npm run dev
 
 ```bash
 cd /home/kyle/projects/apps/ShiftMate/server
-npm install
+npm ci
 cp .env.example .env
 npm run db:init
 npm run dev
