@@ -34,7 +34,7 @@ const APP_URL = process.env.APP_URL || "http://localhost:5173";
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-session";
 
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({ origin: isProd ? APP_URL : true, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
 
 if (isProd) {
