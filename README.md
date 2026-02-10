@@ -9,10 +9,15 @@ License: MIT (see `LICENSE`).
 ```bash
 cd /home/kyle/projects/apps/ShiftMate
 # Node 20+ recommended (see .nvmrc)
-npm ci
+
+# Recommended: install frontend + server deps in one go
+npm run install:all
+
 cp .env.example .env
 npm run dev
 ```
+
+(If you only want the frontend, `npm ci` is enough.)
 
 - Switch Demo/Live mode in **Settings → Backend**.
 - In Live mode, the frontend uses `VITE_API_BASE` (defaults to `http://localhost:4000`).
