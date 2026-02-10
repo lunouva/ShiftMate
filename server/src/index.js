@@ -193,7 +193,14 @@ const sendPush = async ({ subscriptions, title, body }) => {
   return true;
 };
 
-app.get("/api/health", (req, res) => res.json({ ok: true }));
+app.get("/api/health", async (req, res) => {
+  try {
+    await query("SELECT 1 as ok");
+    res.json({ ok: true, db: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, db: false, error: "db_unreachable" });
+  }
+});
 
 app.post("/api/auth/register", async (req, res) => {
   const { company_name, full_name, email, password } = req.body || {};
