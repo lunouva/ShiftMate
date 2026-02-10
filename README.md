@@ -39,15 +39,18 @@ There’s a ready-to-copy workflow at `docs/github-actions-ci.yml`.
 
 Local CI-like check (frontend build + server install):
 ```bash
-npm run check
+npm run ci
+# (alias: npm run check)
 ```
 
 To enable GitHub Actions CI:
 1) Create `.github/workflows/ci.yml` in the repo
 2) Copy/paste the contents of `docs/github-actions-ci.yml`
 
-Note: creating/updating `.github/workflows/*` requires a GitHub token with `workflow` scope.
-If your git credential/token can’t push workflows, create the file via the GitHub web UI or use a PAT that includes `workflow` scope.
+If you see an error like:
+> refusing to allow an OAuth App to create or update workflow ... without `workflow` scope
+
+…then create the workflow file via the GitHub web UI (or use a PAT that includes the `workflow` scope).
 
 ## Marketing site
 
