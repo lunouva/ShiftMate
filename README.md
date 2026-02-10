@@ -10,7 +10,10 @@ License: MIT (see `LICENSE`).
 cd /home/kyle/projects/apps/ShiftMate
 # Node 20+ recommended (see .nvmrc)
 
-# Recommended: install frontend + server deps in one go
+# One-command local setup (creates .env files if missing)
+./scripts/dev-setup.sh
+
+# Or: install frontend + server deps in one go
 npm run install:all
 
 cp .env.example .env
