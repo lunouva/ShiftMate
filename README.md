@@ -19,6 +19,12 @@ npm run dev
 
 ## Backend
 
+Optional: run Postgres locally via Docker:
+```bash
+docker compose -f server/docker-compose.yml up -d
+```
+
+Then:
 ```bash
 cd /home/kyle/projects/apps/ShiftMate/server
 npm ci
