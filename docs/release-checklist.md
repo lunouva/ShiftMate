@@ -8,9 +8,9 @@ This repo is intentionally lightweight; this checklist is here to make a "v0.1" 
 
 ## Local quality gates (run before tagging)
 ```bash
-npm ci
-npm run build
-npm --prefix server ci
+# CI-like check (frontend build + server install)
+npm run ci
+# (alias: npm run check)
 ```
 
 Optional (recommended) smoke checks:
@@ -40,4 +40,7 @@ npm run start
 ## CI
 A copy/paste GitHub Actions workflow is available at `docs/github-actions-ci.yml`.
 
-Note: pushing `.github/workflows/*` may require a GitHub token with `workflow` scope.
+To enable CI in GitHub:
+1) Create `.github/workflows/ci.yml` *via the GitHub web UI* (or use a PAT that includes the `workflow` scope)
+2) Paste the contents of `docs/github-actions-ci.yml`
+3) Verify the **CI** workflow runs on a PR
