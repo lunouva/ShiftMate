@@ -198,7 +198,9 @@ app.get("/api/health", async (req, res) => {
     await query("SELECT 1 as ok");
     res.json({ ok: true, db: true });
   } catch (err) {
-    res.status(500).json({ ok: false, db: false, error: "db_unreachable" });
+    const msg = String(err?.message || "");
+    const error = msg.includes("Missing DATABASE_URL") ? "db_not_configured" : "db_unreachable";
+    res.status(500).json({ ok: false, db: false, error });
   }
 });
 
