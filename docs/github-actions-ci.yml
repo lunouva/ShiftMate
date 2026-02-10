@@ -6,8 +6,9 @@ on:
   pull_request:
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -16,15 +17,11 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
-      - name: Install deps
-        run: npm ci
+      - name: Install (frontend + server)
+        run: npm run install:all
 
-      - name: Build frontend
-        run: npm run build
-
-      - name: Install server deps
-        working-directory: server
-        run: npm ci
+      - name: Check (build + server install)
+        run: npm run ci
