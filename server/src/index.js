@@ -14,6 +14,20 @@ import { query } from "./db.js";
 
 dotenv.config();
 
+const isProd = process.env.NODE_ENV === "production";
+
+if (isProd) {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === "dev-secret") {
+    throw new Error("Missing JWT_SECRET (or using insecure default). Set JWT_SECRET in server/.env.");
+  }
+  if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === "dev-session") {
+    throw new Error("Missing SESSION_SECRET (or using insecure default). Set SESSION_SECRET in server/.env.");
+  }
+} else {
+  if (!process.env.JWT_SECRET) console.warn("[shiftmate-server] JWT_SECRET not set; using dev default");
+  if (!process.env.SESSION_SECRET) console.warn("[shiftmate-server] SESSION_SECRET not set; using dev default");
+}
+
 const app = express();
 const PORT = process.env.PORT || 4000;
 const APP_URL = process.env.APP_URL || "http://localhost:5173";
@@ -23,11 +37,19 @@ const SESSION_SECRET = process.env.SESSION_SECRET || "dev-session";
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
 
+if (isProd) {
+  // Needed for secure cookies behind typical reverse proxies (Render/Fly/Heroku/Nginx).
+  app.set("trust proxy", 1);
+}
+
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { sameSite: "lax" },
+  cookie: {
+    sameSite: "lax",
+    secure: isProd,
+  },
 }));
 
 app.use(passport.initialize());
