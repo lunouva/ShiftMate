@@ -33,6 +33,7 @@ npm run start
 - `VITE_API_BASE` should point at the server (defaults to `http://localhost:4000`).
 
 ## Tagging / versioning
+- Update `CHANGELOG.md` (move items from **Unreleased** into the release).
 - Bump `package.json` version (root) when cutting releases.
 - Create a git tag (e.g. `v0.1.0`) on `main`.
 
