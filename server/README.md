@@ -1,6 +1,6 @@
-# ShiftMate Server
+# Shiftway Server
 
-Node/Express backend for ShiftMate (Live mode).
+Node/Express backend for Shiftway (Live mode).
 
 ## Quick start
 

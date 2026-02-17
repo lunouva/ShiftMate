@@ -10,7 +10,7 @@ const sql = fs.readFileSync(sqlPath, "utf8");
 
 if (!process.env.DATABASE_URL) {
   console.error("Missing DATABASE_URL. Create server/.env from server/.env.example and set DATABASE_URL first.");
-  console.error("Example: DATABASE_URL=postgres://postgres:postgres@localhost:5432/shiftmate");
+  console.error("Example: DATABASE_URL=postgres://postgres:postgres@localhost:5432/shiftway");
   process.exit(1);
 }
 

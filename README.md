@@ -1,4 +1,4 @@
-# ShiftMate
+# Shiftway
 
 Scheduling app with demo mode and a real backend (Node/Express + Postgres).
 
@@ -7,7 +7,7 @@ License: MIT (see `LICENSE`).
 ## Frontend
 
 ```bash
-cd /home/kyle/projects/apps/ShiftMate
+cd /home/kyle/projects/apps/Shiftway
 # Node 20+ recommended (see .nvmrc)
 
 # One-command local setup (creates .env files if missing)
@@ -34,7 +34,7 @@ docker compose -f server/docker-compose.yml up -d
 
 Then:
 ```bash
-cd /home/kyle/projects/apps/ShiftMate/server
+cd /home/kyle/projects/apps/Shiftway/server
 npm ci
 cp .env.example .env
 npm run db:init

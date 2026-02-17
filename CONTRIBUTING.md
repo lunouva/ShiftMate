@@ -1,4 +1,4 @@
-# Contributing to ShiftMate
+# Contributing to Shiftway
 
 Thanks for helping!
 

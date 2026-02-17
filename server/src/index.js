@@ -24,8 +24,8 @@ if (isProd) {
     throw new Error("Missing SESSION_SECRET (or using insecure default). Set SESSION_SECRET in server/.env.");
   }
 } else {
-  if (!process.env.JWT_SECRET) console.warn("[shiftmate-server] JWT_SECRET not set; using dev default");
-  if (!process.env.SESSION_SECRET) console.warn("[shiftmate-server] SESSION_SECRET not set; using dev default");
+  if (!process.env.JWT_SECRET) console.warn("[shiftway-server] JWT_SECRET not set; using dev default");
+  if (!process.env.SESSION_SECRET) console.warn("[shiftway-server] SESSION_SECRET not set; using dev default");
 }
 
 const app = express();
@@ -168,7 +168,7 @@ const smsClient = (() => {
 
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || "mailto:admin@shiftmate.local",
+    process.env.VAPID_SUBJECT || "mailto:admin@shiftway.local",
     process.env.VAPID_PUBLIC_KEY,
     process.env.VAPID_PRIVATE_KEY
   );
@@ -244,7 +244,7 @@ app.post("/api/auth/magic/request", async (req, res) => {
   const expires = new Date(Date.now() + 15 * 60 * 1000);
   await query("INSERT INTO magic_links (user_id, token, expires_at) VALUES ($1,$2,$3)", [user.id, token, expires]);
   const url = `${APP_URL}/api/auth/magic/verify?token=${token}&redirect=${encodeURIComponent(redirect_url || APP_URL)}`;
-  await sendEmail({ to: email, subject: "Your ShiftMate login link", text: `Click to sign in: ${url}` });
+  await sendEmail({ to: email, subject: "Your Shiftway login link", text: `Click to sign in: ${url}` });
   res.json({ ok: true });
 });
 
@@ -381,5 +381,5 @@ function sanitizeUser(user) {
 }
 
 app.listen(PORT, () => {
-  console.log(`ShiftMate server listening on ${PORT}`);
+  console.log(`Shiftway server listening on ${PORT}`);
 });

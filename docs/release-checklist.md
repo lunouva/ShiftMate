@@ -1,4 +1,4 @@
-# ShiftMate — First Release Checklist
+# Shiftway — First Release Checklist
 
 This repo is intentionally lightweight; this checklist is here to make a "v0.1" release repeatable.
 

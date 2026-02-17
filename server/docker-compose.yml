@@ -5,11 +5,11 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: shiftmate
+      POSTGRES_DB: shiftway
     ports:
       - "5432:5432"
     volumes:
-      - shiftmate_pgdata:/var/lib/postgresql/data
+      - shiftway_pgdata:/var/lib/postgresql/data
 
 volumes:
-  shiftmate_pgdata:
+  shiftway_pgdata:

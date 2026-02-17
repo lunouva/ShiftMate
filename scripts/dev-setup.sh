@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$ROOT_DIR"
 
-echo "==> ShiftMate: local dev setup"
+echo "==> Shiftway: local dev setup"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "ERROR: node is not installed or not on PATH" >&2

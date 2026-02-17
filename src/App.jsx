@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, createContext, useContext } from "react";
 
 /**
- * ShiftMate – safe build + updates per new spec
+ * Shiftway – safe build + updates per new spec
  * - Prev/Next week controls (respect custom work-week start)
  * - Unavailability: override with warning (confirm). Employees can edit; Managers can toggle in Settings.
  * - Time off: pending/approved chips on Schedule; scheduling over time off shows warning (confirm).
@@ -80,9 +80,9 @@ const urlBase64ToUint8Array = (base64String) => {
 };
 
 // ---------- demo storage + client settings ----------
-const STORAGE_KEY = "shiftmate_v2";
-const CLIENT_SETTINGS_KEY = "shiftmate_client_settings";
-const TOKEN_KEY = "shiftmate_token";
+const STORAGE_KEY = "shiftway_v2";
+const CLIENT_SETTINGS_KEY = "shiftway_client_settings";
+const TOKEN_KEY = "shiftway_token";
 
 const loadClientSettings = () => {
   try {
@@ -288,7 +288,7 @@ const AuthCtx = createContext(null);
 const useAuth = () => useContext(AuthCtx);
 
 function AuthProvider({ children, data, setData, backendMode, clientSettings, onAuthChange }) {
-  const [currentUserId, setCurrentUserId] = useState(() => localStorage.getItem("shiftmate_current_user") || null);
+  const [currentUserId, setCurrentUserId] = useState(() => localStorage.getItem("shiftway_current_user") || null);
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
@@ -322,7 +322,7 @@ function AuthProvider({ children, data, setData, backendMode, clientSettings, on
       if (!user) throw new Error("No account found");
       const pass = user.password || "demo";
       if (password !== pass) throw new Error("Wrong password");
-      localStorage.setItem("shiftmate_current_user", user.id);
+      localStorage.setItem("shiftway_current_user", user.id);
       setCurrentUserId(user.id);
       setCurrentUser(user);
       onAuthChange?.(user);
@@ -363,7 +363,7 @@ function AuthProvider({ children, data, setData, backendMode, clientSettings, on
   };
 
   const logout = () => {
-    localStorage.removeItem("shiftmate_current_user");
+    localStorage.removeItem("shiftway_current_user");
     localStorage.removeItem(TOKEN_KEY);
     setCurrentUserId(null);
     setCurrentUser(null);
@@ -685,7 +685,7 @@ export default function App() {
       rows.push([schedule.week_start, schedule.status, u?.full_name || "", p?.name || "", fmtDate(sh.starts_at), fmtTime(sh.starts_at), fmtTime(sh.ends_at), sh.break_min, hoursBetween(sh.starts_at, sh.ends_at, sh.break_min).toFixed(2), (sh.notes || "").replaceAll(",", ";")]);
     }
     const csv = rows.map((r) => r.map((x) => `"${String(x).replaceAll('"', '""')}"`).join(",")).join("\n");
-    download(`ShiftMate_${schedule.week_start}.csv`, csv);
+    download(`Shiftway_${schedule.week_start}.csv`, csv);
   };
 
   const copyCsv = async () => {
@@ -708,7 +708,7 @@ export default function App() {
     setData(seeded);
     setWeekStart(fmtDate(startOfWeek(today(), seeded.feature_flags.weekStartsOn)));
     setTab("schedule");
-    localStorage.removeItem("shiftmate_current_user");
+    localStorage.removeItem("shiftway_current_user");
   };
 
   const notifyUsers = async (userIds, title, body) => {
@@ -938,7 +938,7 @@ function InnerApp(props) {
             <div className="h-8 w-8 rounded-xl border" />
           </div>
           <div>
-            <h1 className="text-2xl font-black">ShiftMate</h1>
+            <h1 className="text-2xl font-black">Shiftway</h1>
             <div className="text-sm text-gray-600">{isManager ? "Manager Console" : "My Shifts"}</div>
           </div>
         </div>
@@ -1523,7 +1523,7 @@ function LoginPage({ onAfterLogin, backendMode, setClientSettings }) {
   return (
     <div className="mx-auto grid min-h-[70vh] max-w-md place-items-center p-6">
       <div className="w-full rounded-2xl border p-6 shadow-sm">
-        <h1 className="mb-1 text-2xl font-black">ShiftMate</h1>
+        <h1 className="mb-1 text-2xl font-black">Shiftway</h1>
         <div className="mb-4 text-gray-600">{mode === "register" ? "Create your company" : mode === "magic" ? "Magic link" : "Sign in"}</div>
         {err && <div className="mb-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">{err}</div>}
         {msg && <div className="mb-3 rounded-lg bg-green-50 p-2 text-sm text-green-700">{msg}</div>}
