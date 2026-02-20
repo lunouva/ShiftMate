@@ -21,6 +21,12 @@ try {
   await client.query(sql);
   console.log("Database initialized.");
 } catch (err) {
+  if (err && typeof err === "object" && err.code === "ECONNREFUSED") {
+    console.error("Could not connect to Postgres (connection refused). Is your DB running?");
+    console.error("If you're using Docker, start it with:");
+    console.error("  docker compose -f server/docker-compose.yml up -d");
+    console.error("Then re-run: npm run db:init");
+  }
   console.error(err);
   process.exitCode = 1;
 } finally {

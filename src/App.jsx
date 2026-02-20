@@ -1537,7 +1537,7 @@ function LoginPage({ onAfterLogin, backendMode, setClientSettings }) {
         {err && <div className="mb-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">{err}</div>}
         {msg && <div className="mb-3 rounded-lg bg-green-50 p-2 text-sm text-green-700">{msg}</div>}
         <div className="grid gap-3">
-          {setClientSettings && (
+          {ENABLE_DEMO && setClientSettings && (
             <Select
               label="Mode"
               value={isLive ? "live" : "demo"}
