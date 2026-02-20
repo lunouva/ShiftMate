@@ -80,18 +80,23 @@ const urlBase64ToUint8Array = (base64String) => {
 };
 
 // ---------- demo storage + client settings ----------
+const ENABLE_DEMO = import.meta?.env?.VITE_ENABLE_DEMO === '1';
+
 const STORAGE_KEY = "shiftway_v2";
 const CLIENT_SETTINGS_KEY = "shiftway_client_settings";
 const TOKEN_KEY = "shiftway_token";
 
 const loadClientSettings = () => {
+  const base = { backendMode: "live", apiBase: "" };
   try {
     const raw = localStorage.getItem(CLIENT_SETTINGS_KEY);
-    if (!raw) return { backendMode: "demo", apiBase: "" };
+    if (!raw) return base;
     const parsed = JSON.parse(raw);
-    return { backendMode: "demo", apiBase: "", ...parsed };
+    const merged = { ...base, ...parsed };
+    if (!ENABLE_DEMO && merged.backendMode === "demo") merged.backendMode = "live";
+    return merged;
   } catch {
-    return { backendMode: "demo", apiBase: "" };
+    return base;
   }
 };
 
@@ -1039,7 +1044,9 @@ function InnerApp(props) {
             <button disabled={!schedule} className={`rounded-xl border px-3 py-2 text-sm shadow-sm ${schedule?.status === "published" ? "bg-green-50" : ""}`} onClick={publish}>{schedule?.status === "published" ? "Unpublish" : "Publish"}</button>
             <button disabled={!schedule} className="rounded-xl border px-3 py-2 text-sm shadow-sm" onClick={copyCsv}>Copy CSV</button>
             <button disabled={!schedule} className="rounded-xl border px-3 py-2 text-sm shadow-sm" onClick={exportCsv}>Download CSV</button>
-            <button disabled={backendMode} className="rounded-xl border px-3 py-2 text-sm shadow-sm" onClick={resetDemo}>Reset Demo</button>
+            {ENABLE_DEMO && (
+              <button disabled={backendMode} className="rounded-xl border px-3 py-2 text-sm shadow-sm" onClick={resetDemo}>Reset Demo</button>
+            )}
           </div>
 
           {/* Manager quick inputs below schedule */}
@@ -1172,15 +1179,17 @@ function InnerApp(props) {
             <div>
               <div className="font-semibold">Backend</div>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
-                <Select
-                  label="Mode"
-                  value={backendMode ? "live" : "demo"}
-                  onChange={(v) => setClientSettings((s) => ({ ...s, backendMode: v }))}
-                  options={[
-                    { value: "demo", label: "Demo (local)" },
-                    { value: "live", label: "Live API" },
-                  ]}
-                />
+                {ENABLE_DEMO && (
+                  <Select
+                    label="Mode"
+                    value={backendMode ? "live" : "demo"}
+                    onChange={(v) => setClientSettings((s) => ({ ...s, backendMode: v }))}
+                    options={[
+                      { value: "demo", label: "Demo (local)" },
+                      { value: "live", label: "Live API" },
+                    ]}
+                  />
+                )}
                 <TextInput
                   label="API base URL"
                   value={clientSettings.apiBase}
@@ -1188,7 +1197,7 @@ function InnerApp(props) {
                   placeholder="http://localhost:4000"
                 />
               </div>
-              <div className="mt-2 text-xs text-gray-600">Switch to Live API to use the backend, auth, and notifications.</div>
+              <div className="mt-2 text-xs text-gray-600">Live mode is the default. Demo is {ENABLE_DEMO ? 'available for internal use' : 'disabled in this build'}.</div>
             </div>
 
             <div>
@@ -1296,7 +1305,7 @@ function InnerApp(props) {
         onSubmit={createSwapRequest}
       />
 
-      <footer className="py-8 text-center text-xs text-gray-500">Role‑based demo. Ready to connect to Express/Postgres & JWT for production.</footer>
+      <footer className="py-8 text-center text-xs text-gray-500">Shiftway scheduling app.</footer>
     </div>
   );
 }
@@ -1567,11 +1576,14 @@ function LoginPage({ onAfterLogin, backendMode, setClientSettings }) {
         </div>
         {!isLive && (
           <div className="mt-4 text-xs text-gray-600">
+            {ENABLE_DEMO && (<>
             Demo accounts:
             <ul className="list-disc pl-5">
               <li>Manager: <code>manager@demo.local</code> / <code>demo</code></li>
               <li>Employee: <code>lily@example.com</code> / <code>demo</code></li>
             </ul>
+            </>)}
+
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 # Shiftway
 
-Scheduling app with demo mode and a real backend (Node/Express + Postgres).
+Scheduling app with a real backend (Node/Express + Postgres). Live mode is the default.
 
 License: MIT (see `LICENSE`).
 
@@ -22,8 +22,8 @@ npm run dev
 
 (If you only want the frontend, `npm ci` is enough.)
 
-- Switch Demo/Live mode in **Settings → Backend**.
-- In Live mode, the frontend uses `VITE_API_BASE` (defaults to `http://localhost:4000`).
+- The frontend uses `VITE_API_BASE` (defaults to `http://localhost:4000`).
+- Optional internal demo UI can be enabled at build time with `VITE_ENABLE_DEMO=1`.
 
 ## Backend
 
