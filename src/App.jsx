@@ -180,20 +180,41 @@ const getApiBase = (clientSettings) => {
 
 const apiFetch = async (path, { token, method = "GET", body } = {}, clientSettings) => {
   const apiBase = getApiBase(clientSettings);
-  const res = await fetch(`${apiBase}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Request failed: ${res.status}`);
+  let res;
+  try {
+    res = await fetch(`${apiBase}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch (e) {
+    // Network / CORS / DNS / refused connection
+    throw new Error(e?.message ? `Network error: ${e.message}` : "Network error");
   }
+
   const ct = res.headers.get("content-type") || "";
-  return ct.includes("application/json") ? res.json() : null;
+  const isJson = ct.includes("application/json");
+
+  if (!res.ok) {
+    let msg = "";
+    try {
+      if (isJson) {
+        const j = await res.json();
+        msg = j?.error || j?.message || JSON.stringify(j);
+      } else {
+        msg = await res.text();
+      }
+    } catch {
+      // ignore parse errors
+    }
+    const prefix = `Request failed (${res.status}${res.statusText ? ` ${res.statusText}` : ""})`;
+    throw new Error(msg ? `${prefix}: ${msg}` : prefix);
+  }
+
+  return isJson ? res.json() : null;
 };
 
 // ---------- small UI bits ----------

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 import pg from "pg";
 import dotenv from "dotenv";
 
@@ -23,9 +24,26 @@ try {
 } catch (err) {
   if (err && typeof err === "object" && err.code === "ECONNREFUSED") {
     console.error("Could not connect to Postgres (connection refused). Is your DB running?");
-    console.error("If you're using Docker, start it with:");
-    console.error("  docker compose -f docker-compose.yml up -d");
-    console.error("  # (or from repo root) docker compose -f server/docker-compose.yml up -d");
+
+    let hasDocker = false;
+    try {
+      execSync("command -v docker", { stdio: "ignore" });
+      hasDocker = true;
+    } catch {
+      hasDocker = false;
+    }
+
+    if (!hasDocker) {
+      console.error("Docker does not appear to be installed on this machine.");
+      console.error("Install Docker Desktop / Docker Engine, then run:");
+      console.error("  npm run db:up");
+    } else {
+      console.error("If you're using Docker, start it with:");
+      console.error("  npm run db:up");
+      console.error("  # (or) docker compose -f docker-compose.yml up -d");
+      console.error("  # (or from repo root) docker compose -f server/docker-compose.yml up -d");
+    }
+
     console.error("Then re-run: npm run db:init");
   }
   console.error(err);
