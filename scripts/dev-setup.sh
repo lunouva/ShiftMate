@@ -41,15 +41,15 @@ fi
 cat <<'EOF'
 
 Next steps:
-  1) Frontend (demo mode):
-       npm run dev
-
-  2) Backend (live mode):
+  1) Backend (recommended, Live mode):
        docker compose -f server/docker-compose.yml up -d
        npm run server:db:init
        npm run server:dev
 
+  2) Frontend:
+       npm run dev
+
 Notes:
-  - Switch Demo/Live mode in Settings → Backend.
-  - Live mode defaults to http://localhost:4000 (see server/.env)
+  - Live mode is the default; the frontend will call $VITE_API_BASE (default http://localhost:4000).
+  - Internal demo mode is gated: set VITE_ENABLE_DEMO=1 and open with ?demo=1.
 EOF
