@@ -8,7 +8,13 @@ Node/Express backend for Shiftway (Live mode).
 cd server
 npm ci
 cp .env.example .env
+
+# Start Postgres (Docker)
+npm run db:up
+
+# Initialize schema + seed
 npm run db:init
+
 npm run dev
 ```
 
