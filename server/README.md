@@ -31,5 +31,5 @@ Minimum required for local dev:
 
 ## Notes
 
-- This repo supports **Demo mode** (no backend) and **Live mode** (this server + Postgres).
-- The frontend points at the Live API via `VITE_API_BASE`.
+- The frontend points at the Live API via `VITE_API_BASE` (Live is the default).
+- Internal demo mode (no backend) is gated by the frontend build flag `VITE_ENABLE_DEMO=1` and activated with `?demo=1`.

@@ -23,7 +23,7 @@ npm run dev
 (If you only want the frontend, `npm ci` is enough.)
 
 - The frontend uses `VITE_API_BASE` (defaults to `http://localhost:4000`).
-- Optional internal demo UI can be enabled at build time with `VITE_ENABLE_DEMO=1`.
+- Optional internal demo mode can be enabled at build time with `VITE_ENABLE_DEMO=1` and activated with `?demo=1` (no user-facing toggle).
 
 ## Backend
 

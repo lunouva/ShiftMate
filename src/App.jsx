@@ -81,19 +81,19 @@ const urlBase64ToUint8Array = (base64String) => {
 
 // ---------- demo storage + client settings ----------
 const ENABLE_DEMO = import.meta?.env?.VITE_ENABLE_DEMO === '1';
+const DEMO_MODE = ENABLE_DEMO && new URLSearchParams(window.location.search).get('demo') === '1';
 
 const STORAGE_KEY = "shiftway_v2";
 const CLIENT_SETTINGS_KEY = "shiftway_client_settings";
 const TOKEN_KEY = "shiftway_token";
 
 const loadClientSettings = () => {
-  const base = { backendMode: "live", apiBase: "" };
+  const base = { apiBase: "" };
   try {
     const raw = localStorage.getItem(CLIENT_SETTINGS_KEY);
     if (!raw) return base;
     const parsed = JSON.parse(raw);
     const merged = { ...base, ...parsed };
-    if (!ENABLE_DEMO && merged.backendMode === "demo") merged.backendMode = "live";
     return merged;
   } catch {
     return base;
@@ -468,7 +468,7 @@ function WeekGrid({ employees, weekDays, shifts, positionsById, unavailability, 
 // ---------- main app ----------
 export default function App() {
   const [clientSettings, setClientSettings] = useState(loadClientSettings);
-  const backendMode = clientSettings.backendMode === "live";
+  const backendMode = !DEMO_MODE;
   const apiBase = getApiBase(clientSettings);
   const [data, setData] = useState(loadData);
   const [loading, setLoading] = useState(backendMode);
@@ -899,7 +899,7 @@ function InnerApp(props) {
   } = props;
   const { currentUser, logout } = useAuth();
 
-  if (!currentUser) return <LoginPage backendMode={backendMode} setClientSettings={setClientSettings} onAfterLogin={(u) => setTab(u.role === "employee" ? "my" : "schedule")} />;
+  if (!currentUser) return <LoginPage backendMode={backendMode} onAfterLogin={(u) => setTab(u.role === "employee" ? "my" : "schedule")} />;
 
   if (loading) {
     return (
@@ -1044,8 +1044,8 @@ function InnerApp(props) {
             <button disabled={!schedule} className={`rounded-xl border px-3 py-2 text-sm shadow-sm ${schedule?.status === "published" ? "bg-green-50" : ""}`} onClick={publish}>{schedule?.status === "published" ? "Unpublish" : "Publish"}</button>
             <button disabled={!schedule} className="rounded-xl border px-3 py-2 text-sm shadow-sm" onClick={copyCsv}>Copy CSV</button>
             <button disabled={!schedule} className="rounded-xl border px-3 py-2 text-sm shadow-sm" onClick={exportCsv}>Download CSV</button>
-            {ENABLE_DEMO && (
-              <button disabled={backendMode} className="rounded-xl border px-3 py-2 text-sm shadow-sm" onClick={resetDemo}>Reset Demo</button>
+            {DEMO_MODE && (
+              <button className="rounded-xl border px-3 py-2 text-sm shadow-sm" onClick={resetDemo}>Reset Demo</button>
             )}
           </div>
 
@@ -1179,17 +1179,6 @@ function InnerApp(props) {
             <div>
               <div className="font-semibold">Backend</div>
               <div className="mt-2 grid gap-2 md:grid-cols-2">
-                {ENABLE_DEMO && (
-                  <Select
-                    label="Mode"
-                    value={backendMode ? "live" : "demo"}
-                    onChange={(v) => setClientSettings((s) => ({ ...s, backendMode: v }))}
-                    options={[
-                      { value: "demo", label: "Demo (local)" },
-                      { value: "live", label: "Live API" },
-                    ]}
-                  />
-                )}
                 <TextInput
                   label="API base URL"
                   value={clientSettings.apiBase}
@@ -1197,7 +1186,9 @@ function InnerApp(props) {
                   placeholder="http://localhost:4000"
                 />
               </div>
-              <div className="mt-2 text-xs text-gray-600">Live mode is the default. Demo is {ENABLE_DEMO ? 'available for internal use' : 'disabled in this build'}.</div>
+              {!backendMode && (
+                <div className="mt-2 text-xs text-gray-600">Demo mode is enabled for this build via <code>VITE_ENABLE_DEMO=1</code> and activated by <code>?demo=1</code>.</div>
+              )}
             </div>
 
             <div>
@@ -1483,7 +1474,7 @@ function ManagerQuickUnavailability({ users, onSubmit }) {
 }
 
 // ---------- auth + employee pages ----------
-function LoginPage({ onAfterLogin, backendMode, setClientSettings }) {
+function LoginPage({ onAfterLogin, backendMode }) {
   const { login, registerCompany, requestMagicLink, loginWithGoogle, backendMode: authBackendMode } = useAuth();
   const isLive = backendMode ?? authBackendMode;
   const [mode, setMode] = useState("login");
@@ -1537,17 +1528,6 @@ function LoginPage({ onAfterLogin, backendMode, setClientSettings }) {
         {err && <div className="mb-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">{err}</div>}
         {msg && <div className="mb-3 rounded-lg bg-green-50 p-2 text-sm text-green-700">{msg}</div>}
         <div className="grid gap-3">
-          {ENABLE_DEMO && setClientSettings && (
-            <Select
-              label="Mode"
-              value={isLive ? "live" : "demo"}
-              onChange={(v) => setClientSettings((s) => ({ ...s, backendMode: v }))}
-              options={[
-                { value: "demo", label: "Demo (local)" },
-                { value: "live", label: "Live API" },
-              ]}
-            />
-          )}
           {mode === "register" && (
             <>
               <TextInput label="Company name" value={company} onChange={setCompany} />
@@ -1576,7 +1556,7 @@ function LoginPage({ onAfterLogin, backendMode, setClientSettings }) {
         </div>
         {!isLive && (
           <div className="mt-4 text-xs text-gray-600">
-            {ENABLE_DEMO && (<>
+            {DEMO_MODE && (<>
             Demo accounts:
             <ul className="list-disc pl-5">
               <li>Manager: <code>manager@demo.local</code> / <code>demo</code></li>
