@@ -495,6 +495,7 @@ export default function App() {
   const [loading, setLoading] = useState(backendMode);
   const [hydrated, setHydrated] = useState(!backendMode);
   const [authUser, setAuthUser] = useState(null);
+  const [apiError, setApiError] = useState(null);
   const [tab, setTab] = useState("schedule");
   const [locationId, setLocationId] = useState("loc1");
 
@@ -565,14 +566,17 @@ export default function App() {
       return;
     }
     setLoading(true);
+    setApiError(null);
     apiFetch("/api/state", { token }, clientSettings)
       .then((res) => {
         const next = res?.data || res;
         if (next) setData(next);
         setHydrated(true);
+        setApiError(null);
       })
       .catch((err) => {
         console.error(err);
+        setApiError(`${err?.message || 'Unable to reach server'} (API: ${getApiBase(clientSettings)})`);
       })
       .finally(() => setLoading(false));
   }, [backendMode, authUser, clientSettings]);
@@ -863,6 +867,9 @@ export default function App() {
         clientSettings={clientSettings}
         setClientSettings={setClientSettings}
         backendMode={backendMode}
+        apiBase={apiBase}
+        apiError={apiError}
+        setApiError={setApiError}
         loading={loading}
         tab={tab}
         setTab={setTab}
@@ -912,7 +919,7 @@ export default function App() {
 
 function InnerApp(props) {
   const {
-    data, setData, clientSettings, setClientSettings, backendMode, loading, tab, setTab, locationId, setLocationId, weekStart, setWeekStart,
+    data, setData, clientSettings, setClientSettings, backendMode, apiBase, apiError, setApiError, loading, tab, setTab, locationId, setLocationId, weekStart, setWeekStart,
     users, positions, positionsById, weekDays, schedule, ensureSchedule, createShift, deleteShift,
     publish, totalHoursByUser, totalHoursByDay, copyCsv, exportCsv, resetDemo, shiftModal, setShiftModal, swapModal, setSwapModal,
     addEmployee, addPosition, createTimeOff, setTimeOffStatus, createSwapRequest, setSwapStatus, addUnavailability, updateUnavailability, deleteUnavailability, unavailability,
@@ -988,6 +995,19 @@ function InnerApp(props) {
           <button className="rounded-xl border px-3 py-2 text-sm shadow-sm" onClick={logout}>Logout</button>
         </Toolbar>
       </header>
+
+      {backendMode && apiError && (
+        <div className="rounded-2xl border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="font-semibold">Backend unreachable</div>
+              <div className="text-xs text-red-900/80">{apiError}</div>
+              <div className="mt-1 text-xs text-red-900/80">Make sure the server is running and CORS allows this origin. Current API base: <code>{apiBase}</code>.</div>
+            </div>
+            <button className="rounded-xl border border-red-300 bg-white px-3 py-2 text-xs" onClick={()=>setApiError(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
 
       <nav className="flex flex-wrap gap-2">
         {isManager && (<>
