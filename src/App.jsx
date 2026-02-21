@@ -1434,7 +1434,7 @@ function AddEmployeeForm({ onAdd }) {
         <TextInput label="Emergency contact name" value={emName} onChange={setEmName} placeholder="Contact name" />
         <TextInput label="Emergency contact phone" value={emPhone} onChange={setEmPhone} placeholder="555-0456" />
         <label className="md:col-span-2 grid gap-1 text-sm">
-          <span className="text-gray-600">Attachments (stored as metadata only in demo)</span>
+          <span className="text-gray-600">Attachments {DEMO_MODE ? "(stored as metadata only in demo)" : "(metadata only for now)"}</span>
           <input type="file" multiple onChange={(e)=>onFiles(e.target.files)} className="rounded-xl border px-3 py-2" />
           {filesMeta.length>0 && <div className="text-xs text-gray-600">{filesMeta.length} file(s): {filesMeta.map(f=>f.name).join(', ')}</div>}
         </label>
