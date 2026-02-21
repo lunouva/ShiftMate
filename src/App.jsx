@@ -195,7 +195,19 @@ const loadData = () => {
 const saveLocalData = (data) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 
 const getApiBase = (clientSettings) => {
-  return clientSettings.apiBase || import.meta.env.VITE_API_BASE || "http://localhost:4000";
+  const fromSettings = clientSettings?.apiBase;
+  if (fromSettings) return fromSettings;
+
+  const fromEnv = import.meta.env.VITE_API_BASE;
+  if (fromEnv) return fromEnv;
+
+  // Sensible default:
+  // - local dev: backend runs on :4000
+  // - deployed: assume same-origin backend unless explicitly configured
+  const host = window?.location?.hostname;
+  const isLocalhost = host === "localhost" || host === "127.0.0.1";
+  if (isLocalhost) return "http://localhost:4000";
+  return window.location.origin;
 };
 
 const apiFetch = async (path, { token, method = "GET", body, timeoutMs = 10000 } = {}, clientSettings) => {
@@ -1031,7 +1043,7 @@ function InnerApp(props) {
             <div>
               <div className="font-semibold">Backend unreachable</div>
               <div className="text-xs text-red-900/80">{apiError}</div>
-              <div className="mt-1 text-xs text-red-900/80">Make sure the server is running and CORS allows this origin. Current API base: <code>{apiBase}</code>.</div>
+              <div className="mt-1 text-xs text-red-900/80">Make sure the server is running and CORS allows this origin. If deployed, set <code>VITE_API_BASE</code>. Current API base: <code>{apiBase}</code>.</div>
             </div>
             <button className="rounded-xl border border-red-300 bg-white px-3 py-2 text-xs" onClick={()=>setApiError(null)}>Dismiss</button>
           </div>
