@@ -198,12 +198,15 @@ const getApiBase = (clientSettings) => {
   return clientSettings.apiBase || import.meta.env.VITE_API_BASE || "http://localhost:4000";
 };
 
-const apiFetch = async (path, { token, method = "GET", body } = {}, clientSettings) => {
+const apiFetch = async (path, { token, method = "GET", body, timeoutMs = 10000 } = {}, clientSettings) => {
   const apiBase = getApiBase(clientSettings);
   let res;
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
     res = await fetch(`${apiBase}${path}`, {
       method,
+      signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -211,8 +214,11 @@ const apiFetch = async (path, { token, method = "GET", body } = {}, clientSettin
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
   } catch (e) {
+    if (e?.name === 'AbortError') throw new Error('Request timed out');
     // Network / CORS / DNS / refused connection
     throw new Error(e?.message ? `Network error: ${e.message}` : "Network error");
+  } finally {
+    clearTimeout(t);
   }
 
   const ct = res.headers.get("content-type") || "";
@@ -612,9 +618,12 @@ export default function App() {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return;
     const handle = setTimeout(() => {
-      apiFetch("/api/state", { token, method: "POST", body: { data } }, clientSettings).catch((err) => {
-        console.error(err);
-      });
+      apiFetch("/api/state", { token, method: "POST", body: { data } }, clientSettings)
+        .then(() => setApiError(null))
+        .catch((err) => {
+          console.error(err);
+          setApiError(`${err?.message || 'Unable to save changes'} (API: ${getApiBase(clientSettings)})`);
+        });
     }, 350);
     return () => clearTimeout(handle);
   }, [data, backendMode, hydrated, clientSettings]);
