@@ -10,10 +10,10 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "db:up": "docker compose -f docker-compose.yml up -d",
-    "db:down": "docker compose -f docker-compose.yml down",
+    "db:up": "node scripts/db_up.js",
+    "db:down": "node scripts/db_down.js",
     "db:init": "node scripts/init_db.js",
-    "ci": "node --check src/index.js && node --check src/db.js && node --check scripts/init_db.js"
+    "ci": "node --check src/index.js && node --check src/db.js && node --check scripts/init_db.js && node --check scripts/db_up.js && node --check scripts/db_down.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
