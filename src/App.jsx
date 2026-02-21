@@ -237,6 +237,11 @@ const apiFetch = async (path, { token, method = "GET", body, timeoutMs = 10000 }
   const isJson = ct.includes("application/json");
 
   if (!res.ok) {
+    // If auth expired, clear local token so the UI can return to login cleanly.
+    if (res.status === 401 && token) {
+      try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
+    }
+
     let msg = "";
     try {
       if (isJson) {
@@ -248,7 +253,11 @@ const apiFetch = async (path, { token, method = "GET", body, timeoutMs = 10000 }
     } catch {
       // ignore parse errors
     }
+
     const prefix = `Request failed (${res.status}${res.statusText ? ` ${res.statusText}` : ""})`;
+    if (res.status === 401) {
+      throw new Error(msg || "Session expired. Please log in again.");
+    }
     throw new Error(msg ? `${prefix}: ${msg}` : prefix);
   }
 
