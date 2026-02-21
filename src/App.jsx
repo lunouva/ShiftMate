@@ -83,6 +83,10 @@ const urlBase64ToUint8Array = (base64String) => {
 const ENABLE_DEMO = import.meta?.env?.VITE_ENABLE_DEMO === '1';
 const DEMO_MODE = ENABLE_DEMO && new URLSearchParams(window.location.search).get('demo') === '1';
 
+// Hide internal backend/demo controls from normal users.
+// In production, you should ship with these disabled.
+const SHOW_BACKEND_SETTINGS = import.meta.env.DEV || import.meta?.env?.VITE_SHOW_BACKEND_SETTINGS === '1';
+
 const STORAGE_KEY = "shiftway_v2";
 const CLIENT_SETTINGS_KEY = "shiftway_client_settings";
 const TOKEN_KEY = "shiftway_token";
@@ -1217,20 +1221,22 @@ function InnerApp(props) {
       {tab === "settings" && (
         <Section title="Settings">
           <div className="space-y-6 text-sm">
-            <div>
-              <div className="font-semibold">Backend</div>
-              <div className="mt-2 grid gap-2 md:grid-cols-2">
-                <TextInput
-                  label="API base URL"
-                  value={clientSettings.apiBase}
-                  onChange={(v) => setClientSettings((s) => ({ ...s, apiBase: v }))}
-                  placeholder="http://localhost:4000"
-                />
+            {SHOW_BACKEND_SETTINGS && (
+              <div>
+                <div className="font-semibold">Backend (internal)</div>
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  <TextInput
+                    label="API base URL"
+                    value={clientSettings.apiBase}
+                    onChange={(v) => setClientSettings((s) => ({ ...s, apiBase: v }))}
+                    placeholder="http://localhost:4000"
+                  />
+                </div>
+                <div className="mt-2 text-xs text-gray-600">
+                  Hidden by default. Enable via <code>VITE_SHOW_BACKEND_SETTINGS=1</code> (or dev mode).
+                </div>
               </div>
-              {!backendMode && (
-                <div className="mt-2 text-xs text-gray-600">Demo mode is enabled for this build via <code>VITE_ENABLE_DEMO=1</code> and activated by <code>?demo=1</code>.</div>
-              )}
-            </div>
+            )}
 
             <div>
               <div className="font-semibold">Feature toggles</div>
