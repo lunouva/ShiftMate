@@ -14,7 +14,7 @@ npm run ci
 ```
 
 Optional (recommended) smoke checks:
-- Frontend demo mode loads and basic navigation works.
+- Frontend loads (production build) and basic navigation works.
 - Live mode can:
   - start the server
   - initialize DB
