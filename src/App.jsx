@@ -146,6 +146,22 @@ const seedData = () => ({
   feature_flags: defaultFlags(),
 });
 
+const liveBootstrapData = () => ({
+  locations: [{ id: "loc1", name: "Main Location" }],
+  positions: [],
+  users: [],
+  schedules: [],
+  time_off_requests: [],
+  unavailability: [],
+  news_posts: [],
+  tasks: [],
+  task_templates: [],
+  messages: [],
+  shift_swaps: [],
+  notification_settings: { email: true, sms: false, push: false },
+  feature_flags: defaultFlags(),
+});
+
 const normalizeUser = (u) => {
   const base = { phone: "", birthday: "", pronouns: "", attachments: [], notes: "" };
   const emergency = { name: "", phone: "", ...(u?.emergency_contact || {}) };
@@ -155,7 +171,7 @@ const normalizeUser = (u) => {
 const loadData = () => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return seedData();
+    if (!raw) return DEMO_MODE ? seedData() : liveBootstrapData();
     const parsed = JSON.parse(raw);
     if (!parsed.unavailability) parsed.unavailability = [];
     if (!parsed.news_posts) parsed.news_posts = [];
@@ -172,7 +188,7 @@ const loadData = () => {
     return parsed;
   } catch (e) {
     console.error(e);
-    return seedData();
+    return DEMO_MODE ? seedData() : liveBootstrapData();
   }
 };
 
