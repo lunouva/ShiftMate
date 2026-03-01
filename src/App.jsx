@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, createContext, useContext } from "react";
+import { createPortal } from "react-dom";
 import {
   ScheduleIcon,
   EmployeesIcon,
@@ -41,7 +42,7 @@ const POSITION_COLOR_PALETTE = [
   { key: "purple", border: "border-l-violet-400", bg: "bg-violet-50", dot: "bg-violet-400" },
   { key: "emerald", border: "border-l-emerald-400", bg: "bg-emerald-50", dot: "bg-emerald-400" },
 ];
-const TOAST_DURATION_MS = 2500;
+const TOAST_DURATION_MS = 4000;
 
 // ---------- date utils (safe) ----------
 const safeDate = (v) => {
@@ -570,12 +571,18 @@ function Modal({ open, onClose, title, children, footer }) {
 
 function ToastViewport({ toast }) {
   if (!toast) return null;
-  return (
-    <div className="pointer-events-none fixed inset-x-4 bottom-4 z-[70] flex justify-center sm:inset-x-auto sm:right-4 sm:justify-end">
-      <div className="w-full max-w-sm rounded-2xl border border-brand-dark/20 bg-brand-darker px-4 py-3 text-sm font-semibold text-white shadow-2xl ring-1 ring-brand/25">
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div className="pointer-events-none fixed inset-x-4 bottom-20 z-[200] flex justify-center sm:inset-x-auto sm:right-4 sm:bottom-4 sm:justify-end">
+      <div
+        className="w-full max-w-sm rounded-2xl border border-brand-dark/20 bg-brand-darker px-4 py-3 text-sm font-semibold text-white shadow-2xl ring-1 ring-brand/25"
+        role="status"
+        aria-live="polite"
+      >
         {toast.message}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
