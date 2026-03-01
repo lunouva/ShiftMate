@@ -41,6 +41,7 @@ const POSITION_COLOR_PALETTE = [
   { key: "purple", border: "border-l-violet-400", bg: "bg-violet-50", dot: "bg-violet-400" },
   { key: "emerald", border: "border-l-emerald-400", bg: "bg-emerald-50", dot: "bg-emerald-400" },
 ];
+const TOAST_DURATION_MS = 2500;
 
 // ---------- date utils (safe) ----------
 const safeDate = (v) => {
@@ -567,6 +568,17 @@ function Modal({ open, onClose, title, children, footer }) {
   );
 }
 
+function ToastViewport({ toast }) {
+  if (!toast) return null;
+  return (
+    <div className="pointer-events-none fixed inset-x-4 bottom-4 z-[70] flex justify-center sm:inset-x-auto sm:right-4 sm:justify-end">
+      <div className="w-full max-w-sm rounded-2xl border border-brand-dark/20 bg-brand-darker px-4 py-3 text-sm font-semibold text-white shadow-2xl ring-1 ring-brand/25">
+        {toast.message}
+      </div>
+    </div>
+  );
+}
+
 function HeaderProfileMenu({ open, onClose, user, onEditProfile, onLogout }) {
   if (!open || !user) return null;
 
@@ -1051,6 +1063,7 @@ export default function App() {
   const [shiftModal, setShiftModal] = useState({ open: false, preUserId: null, preDay: null });
   const [swapModal, setSwapModal] = useState({ open: false, shift: null, requestUserId: null });
   const [inviteModal, setInviteModal] = useState(false);
+  const [toast, setToast] = useState(null);
 
   const location = data.locations.find((l) => l.id === locationId) || data.locations[0];
   const users = data.users.filter((u) => u.location_id === location.id && u.is_active);
@@ -1149,6 +1162,14 @@ export default function App() {
   useEffect(() => { saveClientSettings(clientSettings); }, [clientSettings]);
 
   useEffect(() => {
+    if (!toast?.id) return;
+    const timeoutId = window.setTimeout(() => {
+      setToast((current) => current?.id === toast.id ? null : current);
+    }, TOAST_DURATION_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [toast?.id]);
+
+  useEffect(() => {
     if (!hydrated) return;
     if (!backendMode) {
       saveLocalData(data);
@@ -1166,6 +1187,8 @@ export default function App() {
     }, 350);
     return () => clearTimeout(handle);
   }, [data, backendMode, hydrated, clientSettings]);
+
+  const showToast = (message) => setToast({ id: uid(), message });
 
   const ensureSchedule = () => {
     if (schedule) return schedule;
@@ -1213,8 +1236,12 @@ export default function App() {
     const startM = minutes(ua.start_hhmm), endM = minutes(ua.end_hhmm);
     if (!(endM > startM)) { alert('End time must be after start time.'); return; }
     setData((d) => ({ ...d, unavailability: [{ id: uid(), ...ua }, ...d.unavailability] }));
+    showToast("Unavailability saved ✅");
   };
-  const updateUnavailability = (ua) => setData((d)=> ({ ...d, unavailability: d.unavailability.map(x => x.id===ua.id ? { ...x, ...ua } : x) }));
+  const updateUnavailability = (ua) => {
+    setData((d)=> ({ ...d, unavailability: d.unavailability.map(x => x.id===ua.id ? { ...x, ...ua } : x) }));
+    showToast("Unavailability saved ✅");
+  };
   const deleteUnavailability = (id) => setData((d) => ({ ...d, unavailability: d.unavailability.filter((x) => x.id !== id) }));
 
   const currentUserId = authUser?.id || null;
@@ -1245,10 +1272,11 @@ export default function App() {
     // Optional quick task creation
     if (assignedUserId && quickTaskTemplateId) {
       const template = data.task_templates.find(t=> t.id===quickTaskTemplateId);
-      if (template) addTask(template.title, assignedUserId, fmtDate(day), currentUserId || assignedUserId);
+      if (template) addTask(template.title, assignedUserId, fmtDate(day), currentUserId || assignedUserId, { skipToast: true });
     } else if (assignedUserId && quickTaskTitle && quickTaskTitle.trim()) {
-      addTask(quickTaskTitle.trim(), assignedUserId, fmtDate(day), currentUserId || assignedUserId);
+      addTask(quickTaskTitle.trim(), assignedUserId, fmtDate(day), currentUserId || assignedUserId, { skipToast: true });
     }
+    showToast("Shift saved ✅");
   };
 
   const deleteShift = (shiftId) => { if (!schedule) return; upsertSchedule((s) => ({ ...s, shifts: s.shifts.filter((x) => x.id !== shiftId) })); };
@@ -1357,6 +1385,7 @@ export default function App() {
   const createTimeOff = ({ user_id, date_from, date_to, notes }) => {
     const req = { id: uid(), user_id, date_from, date_to, notes: notes || "", status: "pending", created_at: new Date().toISOString() };
     setData((d) => ({ ...d, time_off_requests: [req, ...d.time_off_requests] }));
+    showToast("Time off submitted ✅");
     const managers = data.users.filter(u => u.role !== "employee").map(u => u.id);
     notifyUsers(managers, "New time-off request", `${data.users.find(u=>u.id===user_id)?.full_name || "Employee"} requested ${date_from} → ${date_to}.`);
   };
@@ -1509,10 +1538,11 @@ export default function App() {
   };
 
   // Tasks
-  const addTask = (title, assigned_to, due_date, created_by) => {
+  const addTask = (title, assigned_to, due_date, created_by, options = {}) => {
     const t = { id: uid(), title: title.trim(), assigned_to, due_date, status: 'open', created_by };
     if (!t.title || !assigned_to) return alert('Task needs a title and assignee');
     setData((d) => ({ ...d, tasks: [t, ...d.tasks] }));
+    if (!options.skipToast) showToast("Task added ✅");
   };
   const setTaskStatus = (id, status) => setData((d)=> ({ ...d, tasks: d.tasks.map(t=> t.id===id ? { ...t, status } : t) }));
   const deleteTask = (id) => setData((d)=> ({ ...d, tasks: d.tasks.filter(t=> t.id!==id) }));
@@ -1526,6 +1556,7 @@ export default function App() {
     const m = { id: uid(), from_user_id, to_user_id, body: body.trim(), created_at: new Date().toISOString() };
     if (!m.body) return;
     setData((d)=> ({ ...d, messages: [...d.messages, m] }));
+    showToast("Message sent ✅");
     const fromName = data.users.find(u=>u.id===from_user_id)?.full_name || "New message";
     notifyUsers([to_user_id], `Message from ${fromName}`, m.body);
   };
@@ -1534,12 +1565,16 @@ export default function App() {
   const addEmployee = async (payload) => {
     if (!backendMode) {
       setData((d) => ({ ...d, users: [...d.users, { id: uid(), location_id: (d.locations[0]?.id || 'loc1'), role: payload.role || 'employee', is_active: true, password: 'demo', attachments: payload.attachments || [], ...payload }] }));
+      showToast("Employee added ✅");
       return;
     }
     try {
       const token = localStorage.getItem(TOKEN_KEY);
       const res = await apiFetch("/api/users", { token, method: "POST", body: payload }, clientSettings);
-      if (res?.user) setData((d) => ({ ...d, users: [...d.users, normalizeUser({ ...payload, ...res.user, attachments: payload.attachments || [] })] }));
+      if (res?.user) {
+        setData((d) => ({ ...d, users: [...d.users, normalizeUser({ ...payload, ...res.user, attachments: payload.attachments || [] })] }));
+        showToast("Employee added ✅");
+      }
     } catch (e) {
       alert(e.message || "Unable to add employee");
     }
@@ -1616,6 +1651,7 @@ export default function App() {
         deleteTemplate={deleteTemplate}
         sendMessage={sendMessage}
       />
+      <ToastViewport toast={toast} />
     </AuthProvider>
   );
 }
