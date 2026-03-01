@@ -475,10 +475,6 @@ function Pill({ children, tone = "default", pulse = false }) {
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs transition-colors ${bgCls} ${toneCls} ${pulseCls}`}>{children}</span>;
 }
 
-function ProBadge({ className = "" }) {
-  return <span className={`inline text-[10px] font-bold bg-accent text-white rounded-full px-1.5 py-0.5 ml-1 ${className}`}>Pro</span>;
-}
-
 function Toolbar({ children }) {
   return <div className="flex flex-wrap gap-2">{children}</div>;
 }
@@ -612,40 +608,6 @@ function HeaderProfileMenu({ open, onClose, user, onEditProfile, onLogout }) {
         </div>
       </div>
     </div>
-  );
-}
-
-function ProUpsellModal({ feature, onClose }) {
-  if (!feature) return null;
-
-  return (
-    <Modal
-      open={!!feature}
-      onClose={onClose}
-      title={`${feature.title} is a Pro feature`}
-      footer={
-        <>
-          <button className="rounded-xl border border-brand-light bg-brand-lightest px-3 py-2 text-sm text-brand-dark transition hover:bg-brand-light" onClick={onClose}>
-            Maybe later
-          </button>
-          <a className="rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-darker" href="#upgrade">
-            Upgrade to Pro
-          </a>
-        </>
-      }
-    >
-      <div className="rounded-2xl border border-brand-light bg-brand-lightest/70 p-4">
-        <div className="text-sm font-medium text-brand-text">Unlock {feature.title.toLowerCase()} for smoother manager workflows.</div>
-        <ul className="mt-3 space-y-2 text-sm text-brand-text/80">
-          {feature.benefits.map((benefit) => (
-            <li key={benefit} className="flex items-start gap-2">
-              <span className="mt-0.5 text-brand-dark">•</span>
-              <span>{benefit}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </Modal>
   );
 }
 
@@ -1300,14 +1262,17 @@ export default function App() {
     const prevWeekStart = fmtDate(addDays(weekStart, -7));
     const prevSchedule = data.schedules.find((s) => s.location_id === location.id && s.week_start === prevWeekStart);
     if (!prevSchedule) return alert("No schedule found for last week.");
-    if (schedule?.shifts?.length && !confirm("Replace this week's current shifts with a draft copy of last week?")) return;
+    const copyMode = clientSettings.scheduleSettings?.copyWeekDefault || "replace";
     const copiedShifts = (prevSchedule.shifts || []).map((shift) => ({
       ...shift,
       id: uid(),
       starts_at: addDays(shift.starts_at, 7).toISOString(),
       ends_at: addDays(shift.ends_at, 7).toISOString(),
     }));
-    const nextSchedule = { id: schedule?.id || uid(), location_id: location.id, week_start: weekStart, status: "draft", shifts: copiedShifts };
+    const existingShifts = schedule?.shifts || [];
+    if (copyMode === "confirm" && existingShifts.length && !confirm("Replace this week's current shifts with a draft copy of last week?")) return;
+    const nextShifts = copyMode === "append" ? [...existingShifts, ...copiedShifts] : copiedShifts;
+    const nextSchedule = { id: schedule?.id || uid(), location_id: location.id, week_start: weekStart, status: "draft", shifts: nextShifts };
     setData((d) => {
       const exists = d.schedules.some((s) => s.location_id === location.id && s.week_start === weekStart);
       return {
@@ -1350,6 +1315,40 @@ export default function App() {
     }
     const csv = rows.map((r) => r.map((x) => `"${String(x).replaceAll('"', '""')}"`).join(",")).join("\n");
     download(`Shiftway_${schedule.week_start}.csv`, csv);
+  };
+
+  const exportPayrollCsv = () => {
+    if (!schedule) return;
+    const totals = {};
+    for (const shift of schedule.shifts || []) {
+      if (!shift.user_id) continue;
+      const hours = hoursBetween(shift.starts_at, shift.ends_at, shift.break_min);
+      if (!totals[shift.user_id]) totals[shift.user_id] = { hours: 0 };
+      totals[shift.user_id].hours += hours;
+    }
+    const rows = [[
+      "Week Start",
+      "Status",
+      "Employee",
+      "Hourly Wage",
+      "Scheduled Hours",
+      "Estimated Gross Pay",
+    ]];
+    for (const user of users) {
+      const scheduledHours = totals[user.id]?.hours || 0;
+      if (!scheduledHours) continue;
+      const wage = Number(user.wage) || 0;
+      rows.push([
+        schedule.week_start,
+        schedule.status,
+        user.full_name || "",
+        wage.toFixed(2),
+        scheduledHours.toFixed(2),
+        (scheduledHours * wage).toFixed(2),
+      ]);
+    }
+    const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+    download(`Shiftway_Payroll_${schedule.week_start}.csv`, csv);
   };
 
   const copyCsv = async () => {
@@ -1674,7 +1673,6 @@ function InnerApp(props) {
   const { currentUser, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [headerProfileOpen, setHeaderProfileOpen] = useState(false);
-  const [proUpsell, setProUpsell] = useState(null);
   const [settingsSection, setSettingsSection] = useState("general");
 
   const flags = data.feature_flags || defaultFlags();
@@ -1720,27 +1718,6 @@ function InnerApp(props) {
     setTab("profile");
     setHeaderProfileOpen(false);
     setMobileMenuOpen(false);
-  };
-  const openProUpsell = (featureKey) => {
-    const features = {
-      laborCost: {
-        title: "Labor cost insights",
-        benefits: [
-          "Track wage impact by day before you publish.",
-          "Spot overtime pressure earlier in the week.",
-          "Share clean labor summaries with leadership.",
-        ],
-      },
-      payrollExport: {
-        title: "Payroll export",
-        benefits: [
-          "Export clean payroll-ready hours in one click.",
-          "Reduce manual spreadsheet cleanup every week.",
-          "Keep finance and schedule data aligned.",
-        ],
-      },
-    };
-    setProUpsell(features[featureKey] || null);
   };
   const exportAllData = () => {
     const payload = {
@@ -1938,7 +1915,7 @@ function InnerApp(props) {
           <div className="mb-4 grid gap-3 px-6 pt-6 md:grid-cols-4">
             <SummaryStat hint="Count of scheduled shifts for this location and week." label="Total shifts" value={(schedule?.shifts || []).length} />
             <SummaryStat hint="Sum of all scheduled hours (breaks already excluded)." label="Scheduled hours" value={`${totalScheduledHours.toFixed(2)} h`} />
-            <SummaryStat hint="Hourly wages × planned hours. Tap for payroll-ready insights." label={<span>Estimated labor cost<ProBadge /></span>} value={formatCurrency(totalLaborCost)} onClick={() => openProUpsell("laborCost")} />
+            <SummaryStat hint="Hourly wages × planned hours." label="Estimated labor cost" value={formatCurrency(totalLaborCost)} />
             <SummaryStat hint="Shifts still waiting for someone to claim them." label="Open shifts" value={openShifts.length} />
           </div>
 
@@ -2006,13 +1983,13 @@ function InnerApp(props) {
             <button className="rounded-xl border border-brand-dark bg-brand-dark px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-darker" onClick={() => setShiftModal({ open: true, preUserId: null, preDay: safeDate(weekStart) })}>Add open shift</button>
             <button disabled={!schedule} className={`rounded-xl border px-4 py-2 text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${schedule?.status === "published" ? "border-brand bg-white text-brand-dark hover:bg-brand-lightest" : "border-brand-dark bg-brand-dark text-white hover:bg-brand-darker"}`} onClick={publish}>{schedule?.status === "published" ? "Unpublish" : "Publish"}</button>
             <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest" onClick={copyLastWeek}>
-              Copy last week<ProBadge />
+              Copy last week
             </button>
             <button disabled={!schedule} className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest disabled:cursor-not-allowed disabled:opacity-60" onClick={handlePrint}>Print</button>
             <button disabled={!schedule} className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest disabled:cursor-not-allowed disabled:opacity-60" onClick={copyCsv}>Copy CSV</button>
             <button disabled={!schedule} className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest disabled:cursor-not-allowed disabled:opacity-60" onClick={exportCsv}>Download CSV</button>
-            <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest" onClick={() => openProUpsell("payrollExport")}>
-              Payroll export<ProBadge />
+            <button disabled={!schedule} className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest disabled:cursor-not-allowed disabled:opacity-60" onClick={exportPayrollCsv}>
+              Payroll export
             </button>
             {DEMO_MODE && SHOW_DEMO_CONTROLS && (
               <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest" onClick={resetDemo}>Reset Demo</button>
@@ -2193,7 +2170,7 @@ function InnerApp(props) {
             positionsById={positionsById}
             positionColors={positionColors}
             claims={data.open_shift_claims || []}
-            onClaim={flags.openShiftClaimingEnabled ? (shiftId) => createOpenShiftClaim(shiftId, currentUser.id) : null}
+            onClaim={(shiftId) => createOpenShiftClaim(shiftId, currentUser.id)}
           />
           <TimeOffForm onSubmit={(vals) => createTimeOff({ user_id: currentUser.id, ...vals })} />
           {flags.unavailabilityEnabled && flags.employeeEditUnavailability && (
@@ -2293,10 +2270,11 @@ function InnerApp(props) {
               <div className="space-y-6">
                 <div className="grid gap-2 md:grid-cols-2">
                   <Checkbox
-                    label={<span>Shift acceptance / open shift claiming<ProBadge /></span>}
-                    checked={flags.openShiftClaimingEnabled}
-                    onChange={(v) => setData((d) => ({ ...d, feature_flags: { ...d.feature_flags, openShiftClaimingEnabled: v } }))}
-                    hint="Allow employees to claim open shifts."
+                    label="Shift acceptance / open shift claiming"
+                    checked={true}
+                    onChange={() => {}}
+                    hint="Always enabled for all users."
+                    disabled
                   />
                   <Checkbox
                     label="Enable unavailability"
@@ -2364,7 +2342,7 @@ function InnerApp(props) {
                     placeholder="09:00 - 21:00"
                   />
                   <Select
-                    label={<span>Copy-week default<ProBadge /></span>}
+                    label="Copy-week default"
                     value={clientSettings.scheduleSettings?.copyWeekDefault || "replace"}
                     onChange={(v) => setClientSettings((s) => ({ ...s, scheduleSettings: { ...s.scheduleSettings, copyWeekDefault: v } }))}
                     options={[
@@ -2442,7 +2420,7 @@ function InnerApp(props) {
                     onChange={(v) => setData((d) => ({ ...d, notification_settings: { ...(d.notification_settings || {}), sms: v } }))}
                   />
                   <Checkbox
-                    label={<span>Push channel<ProBadge /></span>}
+                    label="Push channel"
                     checked={!!data.notification_settings?.push}
                     onChange={(v) => setData((d) => ({ ...d, notification_settings: { ...(d.notification_settings || {}), push: v } }))}
                   />
@@ -2497,7 +2475,6 @@ function InnerApp(props) {
                         >
                           <span className={`inline-block h-5 w-5 translate-y-0.5 rounded-full bg-white shadow-sm transition ${clientSettings.notificationEvents?.[eventKey]?.push ? "translate-x-5" : "translate-x-0.5"}`} />
                         </button>
-                        <ProBadge className="ml-0" />
                       </div>
                     </div>
                   ))}
@@ -2506,7 +2483,7 @@ function InnerApp(props) {
                 {backendMode && (
                   <div>
                     <button className="rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white transition hover:bg-brand-darker" onClick={enablePush}>
-                      Enable push notifications<ProBadge />
+                      Enable push notifications
                     </button>
                   </div>
                 )}
@@ -2574,9 +2551,6 @@ function InnerApp(props) {
         requestUserId={swapModal.requestUserId}
         onSubmit={createSwapRequest}
       />
-
-      <ProUpsellModal feature={proUpsell} onClose={() => setProUpsell(null)} />
-
       <InviteModal
         open={inviteModal}
         onClose={() => setInviteModal(false)}
@@ -3557,7 +3531,7 @@ function OpenShiftList({ shifts, positionsById, positionColors, claims, onClaim 
   const pendingShiftIds = new Set((claims || []).filter((claim) => claim.status === "pending").map((claim) => claim.shift_id));
   return (
     <div className="mt-4 rounded-[1.5rem] border border-brand-light bg-white p-4 shadow-sm">
-      <div className="mb-3 text-lg font-bold text-brand-text">Open shifts<ProBadge /></div>
+      <div className="mb-3 text-lg font-bold text-brand-text">Open shifts</div>
       <ul className="space-y-2">
         {shifts.map((shift) => {
           const tone = positionColors?.[shift.position_id] || POSITION_COLOR_PALETTE[0];
