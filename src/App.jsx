@@ -1625,6 +1625,7 @@ export default function App() {
         markShiftOpen={markShiftOpen}
         publish={publish}
         copyLastWeek={copyLastWeek}
+        exportPayrollCsv={exportPayrollCsv}
         totalHoursByUser={totalHoursByUser}
         totalHoursByDay={totalHoursByDay}
         copyCsv={copyCsv}
