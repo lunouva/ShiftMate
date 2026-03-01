@@ -44,7 +44,15 @@ const POSITION_COLOR_PALETTE = [
 
 // ---------- date utils (safe) ----------
 const safeDate = (v) => {
-  const d = v instanceof Date ? new Date(v) : new Date(String(v));
+  if (v instanceof Date) {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }
+  const raw = String(v ?? "");
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const d = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(raw);
   return isNaN(d.getTime()) ? new Date() : d;
 };
 const addDays = (d, n) => { const x = safeDate(d); const y = new Date(x); y.setDate(y.getDate()+n); return y; };
@@ -56,7 +64,13 @@ const startOfWeek = (d, weekStartsOn = 1) => {
   date.setHours(0, 0, 0, 0);
   return date;
 };
-const fmtDate = (d) => safeDate(d).toISOString().slice(0, 10); // YYYY-MM-DD
+const fmtDate = (d) => {
+  const date = safeDate(d);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}; // YYYY-MM-DD (local calendar date)
 const fmtTime = (d) => safeDate(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const fmtDateLabel = (d) => safeDate(d).toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" });
 
@@ -3994,14 +4008,14 @@ function runSelfTests() {
   t('date range includes day', () => isDateWithin('2025-02-10','2025-02-01','2025-02-28') === true && isDateWithin('2025-03-01','2025-02-01','2025-02-28') === false);
   // unavailability conflict check
   t('conflict weekly', () => {
-    const day = new Date('2025-01-06'); // Monday
+    const day = safeDate('2025-01-06'); // Monday
     const ua = [{ user_id: 'u1', kind: 'weekly', weekday: 1, start_hhmm: '09:00', end_hhmm: '12:00' }];
     const matches = ua.filter((x) => x.user_id === 'u1' && (x.kind === 'date' ? x.date === fmtDate(day) : x.weekday === day.getDay()))
     return matches.filter((x) => rangesOverlap(minutes('10:00'), minutes('11:00'), minutes(x.start_hhmm), minutes(x.end_hhmm))).length === 1;
   });
   // date conflict check kept for compat
   t('conflict date', () => {
-    const day = new Date('2025-01-07'); // Tuesday
+    const day = safeDate('2025-01-07'); // Tuesday
     const ua = [{ user_id: 'u1', kind: 'date', date: '2025-01-07', start_hhmm: '14:00', end_hhmm: '18:00' }];
     const matches = ua.filter((x) => x.user_id === 'u1' && (x.kind === 'date' ? x.date === fmtDate(day) : x.weekday === day.getDay()));
     return matches.filter((x) => rangesOverlap(minutes('13:00'), minutes('15:00'), minutes(x.start_hhmm), minutes(x.end_hhmm))).length === 1;
