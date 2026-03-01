@@ -73,7 +73,19 @@ const fmtDate = (d) => {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }; // YYYY-MM-DD (local calendar date)
-const fmtTime = (d) => safeDate(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtTime = (d) => {
+  // Extract HH:MM directly from ISO string to avoid UTC-to-local conversion
+  const raw = String(d ?? "");
+  const m = raw.match(/T(\d{2}):(\d{2})/);
+  if (m) {
+    const h = Number(m[1]);
+    const min = m[2];
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 || 12;
+    return `${h12}:${min} ${ampm}`;
+  }
+  return safeDate(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+};
 const fmtDateLabel = (d) => safeDate(d).toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" });
 
 // ---------- utilities ----------
