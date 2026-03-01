@@ -1773,21 +1773,30 @@ function InnerApp(props) {
 
   return (
     <div className="min-h-screen bg-brand-lightest text-brand-text">
-      <aside className="print-hidden fixed inset-y-0 left-0 z-40 hidden w-[60px] flex-col rounded-r-[2rem] bg-brand-darker py-5 text-white shadow-2xl md:flex">
-        <div className="mb-6 flex items-center gap-3 px-2">
-          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-white/15 text-lg">✦</div>
-          <div>
-            <div className="text-xl font-black">Shiftway</div>
-            <div className="text-xs text-white/70">{isManager ? "Warm scheduling" : "My workspace"}</div>
+      <aside className="print-hidden fixed inset-y-0 left-0 z-40 hidden w-[200px] flex-col rounded-r-[2rem] bg-brand-darker py-5 text-white shadow-2xl md:flex">
+        <div className="mb-6 px-4">
+          <div className="rounded-[1.75rem] border border-white/10 bg-white/10 p-3 shadow-lg shadow-black/10">
+            <div className="flex items-center gap-3">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-brand via-brand-dark to-brand-darker text-xl font-black text-white shadow-lg shadow-brand-darker/40 ring-1 ring-white/20">
+                ✦
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-brand-lightest/80">Shiftway</div>
+                <div className="text-lg font-black text-white">Staffing Hub</div>
+              </div>
+            </div>
+            <div className="mt-3 rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white/80">
+              {isManager ? "Warm scheduling for your whole team" : "Your week, messages, and requests"}
+            </div>
           </div>
         </div>
         <div className="flex-1 space-y-1">
           {navItems.map((item) => (
-            <TabBtn key={item.id} id={item.id} tab={tab} setTab={setTab} label={item.label} icon={item.icon} badge={item.badgeKey ? navBadgeCounts[item.badgeKey] : null} vertical />
+            <TabBtn key={item.id} id={item.id} tab={tab} setTab={setTab} label={item.label} icon={item.icon} badge={item.badgeKey ? navBadgeCounts[item.badgeKey] : null} vertical showLabel />
           ))}
-          {isManager && <TabBtn id="requests" tab={tab} setTab={setTab} label="Time Off" icon="🗂" vertical />}
+          {isManager && <TabBtn id="requests" tab={tab} setTab={setTab} label="Time Off" icon="🗂" vertical showLabel />}
         </div>
-        <div className="mt-4 rounded-[1.5rem] bg-white/10 p-3">
+        <div className="mt-4 mx-4 rounded-[1.5rem] bg-white/10 p-3">
           <div className="flex items-center gap-3">
             <AvatarBadge name={currentStateUser.full_name} className="h-11 w-11 bg-white/85 text-brand-darker" />
             <div className="min-w-0 flex-1">
@@ -1795,7 +1804,13 @@ function InnerApp(props) {
               <div className="truncate text-xs text-white/70">{currentStateUser.role}</div>
             </div>
           </div>
-          <button className="mt-3 w-full rounded-xl bg-white px-4 py-2 text-sm font-semibold text-brand-dark transition hover:bg-brand-lightest" onClick={logout}>Logout</button>
+          <button
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-red-300/25 bg-red-500/15 px-4 py-2 text-sm font-semibold text-red-100 transition hover:border-red-200/40 hover:bg-red-500/25"
+            onClick={logout}
+          >
+            <span className="text-base" aria-hidden="true">↪</span>
+            <span>Log out</span>
+          </button>
         </div>
       </aside>
 
@@ -1847,7 +1862,7 @@ function InnerApp(props) {
         onLogout={logout}
       />
 
-      <main className="space-y-6 px-4 py-4 pb-24 md:pl-[76px] md:pr-6 md:py-6 md:pb-6">
+      <main className="space-y-6 px-4 py-4 pb-24 md:pl-[216px] md:pr-6 md:py-6 md:pb-6">
         <header className="print-hidden rounded-[1.75rem] border border-brand-light bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -2613,7 +2628,7 @@ function DailyNugget() {
   return <div className="mt-2 text-xs text-brand-dark/60 italic">{nugget}</div>;
 }
 
-function TabBtn({ id, tab, setTab, label, icon, badge, vertical = false }) {
+function TabBtn({ id, tab, setTab, label, icon, badge, vertical = false, showLabel = false }) {
   const isActive = tab === id;
   const IconComponent = typeof icon === "function" ? icon : null;
   const iconElement = IconComponent ? <IconComponent className="h-5 w-5" /> : icon ? <span className="text-xl">{icon}</span> : null;
@@ -2622,12 +2637,19 @@ function TabBtn({ id, tab, setTab, label, icon, badge, vertical = false }) {
       <button
         onClick={() => setTab(id)}
         title={label}
-        className={`group/btn relative flex w-full items-center justify-center rounded-xl py-2.5 text-sm font-medium transition-all duration-150 ${isActive ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
+        className={`group/btn relative mx-3 flex w-auto items-center rounded-2xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${showLabel ? "justify-start gap-3" : "justify-center"} ${isActive ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"}`}
       >
-        {iconElement || <span className="text-xs font-bold">{label.slice(0, 2)}</span>}
-        {badge ? <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[9px] font-bold text-white">{badge}</span> : null}
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white">
+          {iconElement || <span className="text-xs font-bold">{label.slice(0, 2)}</span>}
+        </span>
+        {showLabel ? (
+          <span className="min-w-0 flex-1 text-left">
+            <span className="block truncate">{label}</span>
+          </span>
+        ) : null}
+        {badge ? <span className={`absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-bold text-white ${showLabel ? "right-3 top-2" : "right-1 top-1"}`}>{badge}</span> : null}
         {isActive && <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-white" />}
-        <span className="pointer-events-none absolute left-[110%] z-50 hidden whitespace-nowrap rounded-lg bg-brand-text px-2 py-1 text-xs font-medium text-white shadow-lg group-hover/btn:block">{label}</span>
+        {!showLabel && <span className="pointer-events-none absolute left-[110%] z-50 hidden whitespace-nowrap rounded-lg bg-brand-text px-2 py-1 text-xs font-medium text-white shadow-lg group-hover/btn:block">{label}</span>}
       </button>
     );
   }
