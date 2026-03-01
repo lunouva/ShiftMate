@@ -1852,7 +1852,7 @@ function InnerApp(props) {
         onLogout={logout}
       />
 
-      <main className="space-y-6 px-4 py-4 pb-24 md:pl-[216px] md:pr-6 md:py-6 md:pb-6">
+      <main className="space-y-6 px-4 py-4 pb-24 md:pl-[240px] md:pr-6 md:py-6 md:pb-6">
         <header className="print-hidden rounded-[1.75rem] border border-brand-light bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
