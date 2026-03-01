@@ -1667,7 +1667,7 @@ function InnerApp(props) {
   const {
     data, setData, clientSettings, setClientSettings, backendMode, apiBase, apiError, setApiError, loading, tab, setTab, locationId, setLocationId, weekStart, setWeekStart,
     users, positions, positionsById, weekDays, schedule, ensureSchedule, createShift, deleteShift, markShiftOpen,
-    publish, copyLastWeek, totalHoursByUser, totalHoursByDay, copyCsv, exportCsv, resetDemo, shiftModal, setShiftModal, swapModal, setSwapModal, inviteModal, setInviteModal,
+    publish, copyLastWeek, exportPayrollCsv, totalHoursByUser, totalHoursByDay, copyCsv, exportCsv, resetDemo, shiftModal, setShiftModal, swapModal, setSwapModal, inviteModal, setInviteModal,
     addEmployee, addPosition, createTimeOff, setTimeOffStatus, createSwapRequest, setSwapStatus, createOpenShiftClaim, setOpenShiftClaimStatus, addUnavailability, updateUnavailability, deleteUnavailability, unavailability, saveProfile,
     addPost, addTask, setTaskStatus, deleteTask, addTemplate, deleteTemplate, sendMessage,
   } = props;
