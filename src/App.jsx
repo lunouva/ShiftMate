@@ -1045,8 +1045,6 @@ export default function App() {
   const [tab, setTab] = useState("schedule");
   const [locationId, setLocationId] = useState("loc1");
 
-  const [statusPulse, setStatusPulse] = useState(false);
-
   const defaultWeekStart = fmtDate(startOfWeek(today(), 1));
   const [weekStart, setWeekStart] = useState(defaultWeekStart);
 
@@ -1082,12 +1080,6 @@ export default function App() {
   }, []);
 
   const schedule = useMemo(() => data.schedules.find((s) => s.location_id === location.id && s.week_start === weekStart), [data.schedules, location.id, weekStart]);
-  useEffect(() => {
-    if (!schedule?.status) return undefined;
-    setStatusPulse(true);
-    const timer = setTimeout(() => setStatusPulse(false), 1200);
-    return () => clearTimeout(timer);
-  }, [schedule?.status]);
   const weekDays = useMemo(() => {
     const start = safeDate(weekStart);
     return Array.from({ length: 7 }, (_, i) => {
@@ -1877,7 +1869,7 @@ function InnerApp(props) {
           title={`Week of ${safeDate(weekStart).toLocaleDateString()}`}
           right={
             schedule ? (
-              <Pill pulse={statusPulse}>
+              <Pill>
                 Status: <span className={`ml-1 font-semibold ${schedule.status === "published" ? "text-green-700" : "text-amber-700"}`}>{schedule.status}</span>
               </Pill>
             ) : (
