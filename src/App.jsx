@@ -1773,7 +1773,7 @@ function InnerApp(props) {
 
   return (
     <div className="min-h-screen bg-brand-lightest text-brand-text">
-      <aside className="print-hidden fixed inset-y-0 left-0 z-40 hidden w-[200px] flex-col rounded-r-[2rem] bg-brand-darker py-5 text-white shadow-2xl md:flex">
+      <aside className="print-hidden fixed inset-y-0 left-0 z-40 hidden w-[200px] flex-col overflow-hidden rounded-r-[2rem] bg-brand-darker py-5 text-white shadow-2xl md:flex">
         <div className="mb-6 px-4">
           <div className="rounded-[1.75rem] border border-white/10 bg-white/10 p-3 shadow-lg shadow-black/10">
             <div className="flex items-center gap-3">
@@ -1790,13 +1790,13 @@ function InnerApp(props) {
             </div>
           </div>
         </div>
-        <div className="flex-1 space-y-1">
+        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
           {navItems.map((item) => (
             <TabBtn key={item.id} id={item.id} tab={tab} setTab={setTab} label={item.label} icon={item.icon} badge={item.badgeKey ? navBadgeCounts[item.badgeKey] : null} vertical showLabel />
           ))}
           {isManager && <TabBtn id="requests" tab={tab} setTab={setTab} label="Time Off" icon="🗂" vertical showLabel />}
         </div>
-        <div className="mt-4 mx-4 rounded-[1.5rem] bg-white/10 p-3">
+        <div className="mx-4 mt-4 shrink-0 rounded-[1.5rem] bg-white/10 p-3">
           <div className="flex items-center gap-3">
             <AvatarBadge name={currentStateUser.full_name} className="h-11 w-11 bg-white/85 text-brand-darker" />
             <div className="min-w-0 flex-1">
