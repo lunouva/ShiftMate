@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
+import BillingGate from "./components/BillingGate.jsx";
 import {
   ScheduleIcon,
   EmployeesIcon,
@@ -17,7 +18,7 @@ import {
 /* tailwind-safelist: bg-brand bg-brand-dark bg-brand-darker bg-brand-light bg-brand-lightest text-brand-dark text-brand-darker text-brand-text border-brand border-brand-dark border-brand-light */
 
 /**
- * Shiftway – safe build + updates per new spec
+ * Shiftway - safe build + updates per new spec
  * - Prev/Next week controls (respect custom work-week start)
  * - Unavailability: override with warning (confirm). Employees can edit; Managers can toggle in Settings.
  * - Time off: pending/approved chips on Schedule; scheduling over time off shows warning (confirm).
@@ -26,7 +27,7 @@ import {
  * - Requests: its own tab for Managers/Owners (time-off approvals). Positions moved under Settings.
  * - Messages: simple DMs.
  * - NEW: Work-week start day configurable in Settings (applies to week picker & grid) + prev/next week buttons.
- * - NEW: Add Employee fields – phone, birthday, pronouns (optional), emergency contact, attachments (metadata only for now), notes.
+ * - NEW: Add Employee fields - phone, birthday, pronouns (optional), emergency contact, attachments (metadata only for now), notes.
  * - NEW: Manager quick inputs (under Schedule): add Time Off & Weekly Unavailability; full lists remain in Requests/Unavailability tabs.
  *
  * This file is a complete, runnable React single-file app for the canvas preview.
@@ -373,7 +374,15 @@ const formatRetryAfter = (retryAfterHeader) => {
   return "";
 };
 
-const apiFetch = async (path, { token, method = "GET", body, timeoutMs = 10000 } = {}, clientSettings) => {
+// Billing required sentinel - caught in App and shown via BillingGate
+class BillingRequiredError extends Error {
+  constructor(message) {
+    super(message || "An active subscription is required.");
+    this.name = "BillingRequiredError";
+  }
+}
+
+const apiFetch = async (path, { token, method = "GET", body, timeoutMs = 10000, orgSlug } = {}, clientSettings) => {
   const apiBase = getApiBase(clientSettings).replace(/\/$/, "");
   let res;
   const controller = new AbortController();
@@ -385,6 +394,7 @@ const apiFetch = async (path, { token, method = "GET", body, timeoutMs = 10000 }
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(orgSlug ? { "X-Org-Slug": orgSlug } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
@@ -421,6 +431,11 @@ const apiFetch = async (path, { token, method = "GET", body, timeoutMs = 10000 }
     }
 
     const prefix = `Request failed (${res.status}${res.statusText ? ` ${res.statusText}` : ""})`;
+
+    // Billing required - throw special error so App can show BillingGate
+    if (res.status === 402) {
+      throw new BillingRequiredError(msg || "An active subscription is required to access this workspace.");
+    }
 
     // Give users actionable, human-readable failures in Live mode.
     if (res.status === 401) {
@@ -850,7 +865,7 @@ function WeekGrid({
                       ))}
                       {dayUnav.map((ua) => (
                         <div key={ua.id} className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-                          Unavailable {ua.start_hhmm}–{ua.end_hhmm}
+                          Unavailable {ua.start_hhmm}-{ua.end_hhmm}
                         </div>
                       ))}
                       {dayShifts.map((s) => {
@@ -862,7 +877,7 @@ function WeekGrid({
                                 <AvatarBadge name={emp.full_name} className="h-6 w-6 text-[10px]" />
                                 <div>
                                   <div className="text-sm font-semibold text-brand-text">{fmtTime(s.starts_at)} - {fmtTime(s.ends_at)}</div>
-                                  <div className="text-xs text-gray-500">{positionsById[s.position_id]?.name || "—"}</div>
+                                  <div className="text-xs text-gray-500">{positionsById[s.position_id]?.name || "-"}</div>
                                 </div>
                               </div>
                               <div className="flex gap-1 md:opacity-0 md:transition md:group-hover:opacity-100">
@@ -980,17 +995,17 @@ function WeekGrid({
                           ))}
                           {dayUnav.map((ua) => (
                             <div key={ua.id} className="rounded-xl bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-700">
-                              Unavailable {ua.start_hhmm}–{ua.end_hhmm}
+                              Unavailable {ua.start_hhmm}-{ua.end_hhmm}
                             </div>
                           ))}
                           {dayShifts.map((s) => {
                             const tone = positionColors?.[s.position_id] || POSITION_COLOR_PALETTE[0];
-                            const posName = positionsById[s.position_id]?.name || "—";
+                            const posName = positionsById[s.position_id]?.name || "-";
                             return (
                               <div key={s.id} className={`group relative rounded-lg border-l-4 bg-white px-2 py-1.5 shadow-sm transition duration-150 hover:shadow-md ${tone.border}`}>
                                 <div className="flex items-center justify-between gap-1">
                                   <div className="min-w-0">
-                                    <div className="truncate text-xs font-bold text-brand-text">{fmtTime(s.starts_at)}–{fmtTime(s.ends_at)}</div>
+                                    <div className="truncate text-xs font-bold text-brand-text">{fmtTime(s.starts_at)}-{fmtTime(s.ends_at)}</div>
                                     <div className="truncate text-[10px] text-gray-400">{posName}</div>
                                   </div>
                                   <div className="flex shrink-0 gap-0.5 opacity-0 transition group-hover:opacity-100">
@@ -1025,11 +1040,23 @@ function WeekGrid({
 }
 
 // ---------- main app ----------
-export default function App() {
+export default function App({ workspaceSlug } = {}) {
   const [clientSettings, setClientSettings] = useState(loadClientSettings);
   const backendMode = !DEMO_MODE;
   const apiBase = getApiBase(clientSettings);
   const isInviteAcceptRoute = window.location.pathname === "/invite/accept";
+  const [billingRequired, setBillingRequired] = useState(false);
+
+  // Wrapper around apiFetch that auto-injects workspaceSlug and catches 402
+  const callApi = (path, opts = {}, settings) => {
+    return apiFetch(path, { orgSlug: workspaceSlug, ...opts }, settings ?? clientSettings).catch((err) => {
+      if (err instanceof BillingRequiredError) {
+        setBillingRequired(true);
+        throw err;
+      }
+      throw err;
+    });
+  };
   const [data, setData] = useState(loadData);
   const [loading, setLoading] = useState(backendMode);
   const [hydrated, setHydrated] = useState(!backendMode);
@@ -1109,7 +1136,7 @@ export default function App() {
     }
     if (!hydrated) setLoading(true);
     setApiError(null);
-    apiFetch("/api/state", { token }, clientSettings)
+    callApi("/api/state", { token })
       .then((res) => {
         const next = res?.data || res;
         if (next) setData(next);
@@ -1117,10 +1144,11 @@ export default function App() {
         setApiError(null);
       })
       .catch(async (err) => {
+        if (err instanceof BillingRequiredError) { setLoading(false); return; }
         console.error(err);
         const baseMsg = err?.message || 'Unable to reach server';
 
-        // Best-effort: probe /api/health to distinguish “backend down” vs “DB not configured/unreachable”.
+        // Best-effort: probe /api/health to distinguish "backend down" vs "DB not configured/unreachable".
         try {
           await apiFetch("/api/health", {}, clientSettings);
           setApiError(`${baseMsg} (API: ${getApiBase(clientSettings)})`);
@@ -1159,9 +1187,10 @@ export default function App() {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return;
     const handle = setTimeout(() => {
-      apiFetch("/api/state", { token, method: "POST", body: { data } }, clientSettings)
+      callApi("/api/state", { token, method: "POST", body: { data } })
         .then(() => setApiError(null))
         .catch((err) => {
+          if (err instanceof BillingRequiredError) return;
           console.error(err);
           setApiError(`${err?.message || 'Unable to save changes'} (API: ${getApiBase(clientSettings)})`);
         });
@@ -1231,11 +1260,11 @@ export default function App() {
     // Unavailability override with confirm
     const conflicts = user_id ? hasUnavailabilityConflict(user_id, day, start_hhmm, end_hhmm) : [];
     if (conflicts.length) {
-      const lines = conflicts.slice(0, 3).map((c) => `${c.kind === 'weekly' ? 'Weekly' : c.date}: ${c.start_hhmm}–${c.end_hhmm}${c.notes ? ' • ' + c.notes : ''}`).join('\n');
+      const lines = conflicts.slice(0, 3).map((c) => `${c.kind === 'weekly' ? 'Weekly' : c.date}: ${c.start_hhmm}-${c.end_hhmm}${c.notes ? ' • ' + c.notes : ''}`).join('\n');
       const ok = confirm(`This shift overlaps with unavailability:\n${lines}\n\nSchedule anyway?`);
       if (!ok) return;
     }
-    // Time‑off warning with confirm
+    // Time-off warning with confirm
     const timeOffMatches = user_id ? hasTimeOffConflict(user_id, day) : [];
     if (timeOffMatches.length) {
       const lines = timeOffMatches.slice(0, 3).map((r)=> `${r.date_from}→${r.date_to} (${r.status})${r.notes ? ' • ' + r.notes : ''}`).join('\n');
@@ -1579,7 +1608,7 @@ export default function App() {
     notifyUsers([to_user_id], `Message from ${fromName}`, m.body);
   };
 
-  // Add employee (enhanced) – used by form
+  // Add employee (enhanced) - used by form
   const addEmployee = async (payload) => {
     if (!backendMode) {
       setData((d) => ({ ...d, users: [...d.users, { id: uid(), location_id: (d.locations[0]?.id || 'loc1'), role: payload.role || 'employee', is_active: true, password: 'demo', attachments: payload.attachments || [], ...payload }] }));
@@ -1671,7 +1700,113 @@ export default function App() {
         sendMessage={sendMessage}
       />
       <ToastViewport toast={toast} />
+      {billingRequired && (
+        <BillingGate
+          currentUser={authUser}
+          clientSettings={clientSettings}
+          onDismiss={() => {
+            setBillingRequired(false);
+            localStorage.removeItem(TOKEN_KEY);
+            setAuthUser(null);
+          }}
+        />
+      )}
     </AuthProvider>
+  );
+}
+
+function BillingSettingsPanel({ clientSettings }) {
+  const [billingStatus, setBillingStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) { setLoading(false); return; }
+    apiFetch('/api/billing/status', { token }, clientSettings)
+      .then((res) => { setBillingStatus(res); })
+      .catch((err) => { setError(err.message || 'Unable to load billing info.'); })
+      .finally(() => setLoading(false));
+  }, [clientSettings]);
+
+  const handleManageSubscription = async () => {
+    setError('');
+    setCheckoutLoading(true);
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const res = await apiFetch('/api/billing/create-checkout-session', { token, method: 'POST' }, clientSettings);
+      if (res?.checkout_url) {
+        window.location.href = res.checkout_url;
+      } else {
+        setError('Could not create checkout session. Please try again.');
+      }
+    } catch (err) {
+      setError(err.message || 'Unable to start checkout.');
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
+
+  if (loading) return <div className="rounded-2xl border border-brand-light bg-white p-4 text-sm">Loading billing info…</div>;
+
+  const statusTone = billingStatus?.status === 'active' || billingStatus?.status === 'trialing' ? 'success'
+    : billingStatus?.status === 'past_due' ? 'warn'
+    : 'danger';
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-brand-light bg-white p-4 shadow-sm">
+        <h4 className="font-semibold text-brand-text mb-3">Subscription</h4>
+        {error && <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+        {billingStatus ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-brand-dark/60 uppercase tracking-wide">Status</div>
+                <div className="font-semibold capitalize">{billingStatus.status || 'Unknown'}</div>
+              </div>
+              {billingStatus.plan && (
+                <div>
+                  <div className="text-xs text-brand-dark/60 uppercase tracking-wide">Plan</div>
+                  <div className="font-semibold">{billingStatus.plan}</div>
+                </div>
+              )}
+              {billingStatus.trial_end && (
+                <div>
+                  <div className="text-xs text-brand-dark/60 uppercase tracking-wide">Trial ends</div>
+                  <div className="font-semibold">{new Date(billingStatus.trial_end).toLocaleDateString()}</div>
+                </div>
+              )}
+              {billingStatus.current_period_end && (
+                <div>
+                  <div className="text-xs text-brand-dark/60 uppercase tracking-wide">Next billing</div>
+                  <div className="font-semibold">{new Date(billingStatus.current_period_end).toLocaleDateString()}</div>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={handleManageSubscription}
+              disabled={checkoutLoading}
+              className="rounded-xl border border-brand-dark bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-darker disabled:opacity-60"
+            >
+              {checkoutLoading ? 'Loading…' : (billingStatus.status === 'active' || billingStatus.status === 'trialing') ? 'Manage subscription' : 'Reactivate subscription'}
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-sm text-brand-dark/70">No billing information available.</div>
+            <button
+              onClick={handleManageSubscription}
+              disabled={checkoutLoading}
+              className="rounded-xl border border-brand-dark bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-darker disabled:opacity-60"
+            >
+              {checkoutLoading ? 'Loading…' : 'Set up subscription'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2119,7 +2254,7 @@ function InnerApp(props) {
       )}
 
       {isManager && tab === "requests" && (
-        <Section title="Time‑off requests">
+        <Section title="Time-off requests">
           <RequestsPanel users={users} list={data.time_off_requests} onSetStatus={setTimeOffStatus} />
         </Section>
       )}
@@ -2209,6 +2344,7 @@ function InnerApp(props) {
                   ["schedule", "Schedule"],
                   ["time-off", "Time Off"],
                   ["notifications", "Notifications"],
+                  ...(isManager ? [["billing", "Billing"]] : []),
                   ["danger", "Danger Zone"],
                 ].map(([id, label]) => (
                   <button
@@ -2501,6 +2637,10 @@ function InnerApp(props) {
                   </div>
                 )}
               </div>
+            )}
+
+            {settingsSection === "billing" && isManager && (
+              <BillingSettingsPanel clientSettings={clientSettings} />
             )}
 
             {settingsSection === "danger" && (
@@ -3082,7 +3222,7 @@ function LoginPage({ onAfterLogin, backendMode }) {
   const { login, registerCompany, requestMagicLink, loginWithGoogle, backendMode: authBackendMode } = useAuth();
   const isLive = backendMode ?? authBackendMode;
   const [mode, setMode] = useState("login");
-  // Don’t auto-suggest demo creds unless demo is explicitly enabled.
+  // Don't auto-suggest demo creds unless demo is explicitly enabled.
   const [email, setEmail] = useState(isLive ? "" : (DEMO_MODE ? "manager@demo.local" : ""));
   const [password, setPassword] = useState(isLive ? "" : (DEMO_MODE ? "demo" : ""));
   const [company, setCompany] = useState("");
@@ -3228,7 +3368,7 @@ function SwapRequestModal({ open, onClose, currentUser, users, schedule, shift, 
       <div className="text-sm">
         <div className="rounded-xl border p-2">
           <div className="font-medium">{requestUser.id === currentUser.id ? "Your shift" : `${requestUser.full_name}'s shift`}</div>
-          <div className="text-gray-600">{fmtDate(shift.starts_at)} • {fmtTime(shift.starts_at)}–{fmtTime(shift.ends_at)}</div>
+          <div className="text-gray-600">{fmtDate(shift.starts_at)} • {fmtTime(shift.starts_at)}-{fmtTime(shift.ends_at)}</div>
         </div>
         {requestUser.id !== currentUser.id && (
           <div className="mt-2 text-xs text-brand-text/70">This request will be created for {requestUser.full_name}.</div>
@@ -3241,7 +3381,7 @@ function SwapRequestModal({ open, onClose, currentUser, users, schedule, shift, 
         onChange={setPeerShiftId}
         options={[
           { value: "", label: "No swap (just cover my shift)" },
-          ...peerShifts.map((s) => ({ value: s.id, label: `${fmtDate(s.starts_at)} ${fmtTime(s.starts_at)}–${fmtTime(s.ends_at)}` })),
+          ...peerShifts.map((s) => ({ value: s.id, label: `${fmtDate(s.starts_at)} ${fmtTime(s.starts_at)}-${fmtTime(s.ends_at)}` })),
         ]}
       />
       <TextArea label="Notes" value={notes} onChange={setNotes} placeholder="Optional" />
@@ -3260,7 +3400,7 @@ function SwapPanel({ currentUser, users, schedules, swaps, onRequest, onSetStatu
   const outgoing = swaps.filter((s) => s.from_user_id === currentUser.id);
   const pendingManager = swaps.filter((s) => s.status === "pending_manager");
 
-  const renderShift = (shift) => shift ? `${fmtDate(shift.starts_at)} ${fmtTime(shift.starts_at)}–${fmtTime(shift.ends_at)}` : "—";
+  const renderShift = (shift) => shift ? `${fmtDate(shift.starts_at)} ${fmtTime(shift.starts_at)}-${fmtTime(shift.ends_at)}` : "-";
 
   return (
     <div className="space-y-6 text-sm">
@@ -3362,7 +3502,7 @@ function PendingApprovalsPanel({ users, schedules, swaps, timeOffRequests, openS
                   {byId[swap.from_user_id]?.full_name || "Employee"} ⇄ {byId[swap.to_user_id]?.full_name || "Employee"}
                 </div>
                 <div className="text-xs text-brand-text/70">
-                  {shiftById[swap.from_shift_id] ? `${fmtDate(shiftById[swap.from_shift_id].starts_at)} ${fmtTime(shiftById[swap.from_shift_id].starts_at)}-${fmtTime(shiftById[swap.from_shift_id].ends_at)}` : "—"}
+                  {shiftById[swap.from_shift_id] ? `${fmtDate(shiftById[swap.from_shift_id].starts_at)} ${fmtTime(shiftById[swap.from_shift_id].starts_at)}-${fmtTime(shiftById[swap.from_shift_id].ends_at)}` : "-"}
                 </div>
               </div>
               <div className="flex gap-2">
@@ -3634,7 +3774,7 @@ function MyShifts({ currentUser, schedule, weekDays, positionsById, locationName
                   <AvatarBadge name={currentUser.full_name} className="h-8 w-8 text-xs" />
                   <div>
                     <div className="font-semibold">{fmtDateLabel(shift.starts_at)} • {fmtTime(shift.starts_at)} - {fmtTime(shift.ends_at)}</div>
-                    <div className="text-xs text-brand-text/70">{positionsById[shift.position_id]?.name || "—"} • {locationName} • Break: {shift.break_min}m</div>
+                    <div className="text-xs text-brand-text/70">{positionsById[shift.position_id]?.name || "-"} • {locationName} • Break: {shift.break_min}m</div>
                   </div>
                 </div>
                 {onSwapRequest && (
@@ -3748,7 +3888,7 @@ function MyUnavailabilityEditor({ currentUser, list, onAdd, onUpdate, onDelete }
           {mine.map((ua) => (
             <li key={ua.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
               <div>
-                <div className="font-medium">{WEEK_LABELS[ua.weekday]} {ua.start_hhmm}–{ua.end_hhmm}</div>
+                <div className="font-medium">{WEEK_LABELS[ua.weekday]} {ua.start_hhmm}-{ua.end_hhmm}</div>
                 {ua.notes && <div className="text-xs text-gray-600">{ua.notes}</div>}
               </div>
               <div className="flex gap-2">
@@ -3839,7 +3979,7 @@ function UnavailabilityAdmin({ users, list, onAdd, onUpdate, onDelete }) {
               {(grouped[u.id]||[]).filter(ua=>ua.kind==='weekly').map((ua)=> (
                 <li key={ua.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
                   <div>
-                    <div className="font-medium">{WEEK_LABELS[ua.weekday]} {ua.start_hhmm}–{ua.end_hhmm}</div>
+                    <div className="font-medium">{WEEK_LABELS[ua.weekday]} {ua.start_hhmm}-{ua.end_hhmm}</div>
                     {ua.notes && <div className="text-xs text-gray-600">{ua.notes}</div>}
                   </div>
                   <div className="flex gap-2">
@@ -3941,7 +4081,7 @@ function TasksPanel({ users, currentUser, tasks, templates, onAdd, onSetStatus, 
             <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
               <div>
                 <div className="font-medium">{t.title}</div>
-                <div className="text-xs text-gray-600">Due {t.due_date} • Assigned to {users.find(u=>u.id===t.assigned_to)?.full_name || '—'}</div>
+                <div className="text-xs text-gray-600">Due {t.due_date} • Assigned to {users.find(u=>u.id===t.assigned_to)?.full_name || '-'}</div>
               </div>
               <div className="flex items-center gap-2">
                 <select className="rounded-xl border px-2 py-1" value={t.status} onChange={(e)=>onSetStatus(t.id, e.target.value)}>
@@ -4008,7 +4148,7 @@ function RequestsPanel({ users, list, onSetStatus }) {
           {pending.map(r=> (
             <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
               <div>
-                <div className="font-medium">{byId[r.user_id]?.full_name || '—'}</div>
+                <div className="font-medium">{byId[r.user_id]?.full_name || '-'}</div>
                 <div className="text-gray-600">{r.date_from} → {r.date_to}{r.notes ? ` • ${r.notes}` : ''}</div>
               </div>
               <div className="flex gap-2">
@@ -4026,7 +4166,7 @@ function RequestsPanel({ users, list, onSetStatus }) {
           {others.map(r=> (
             <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
               <div>
-                <div className="font-medium">{byId[r.user_id]?.full_name || '—'}</div>
+                <div className="font-medium">{byId[r.user_id]?.full_name || '-'}</div>
                 <div className="text-gray-600">{r.date_from} → {r.date_to}{r.notes ? ` • ${r.notes}` : ''}</div>
               </div>
               <Pill tone={r.status==='approved' ? 'success' : r.status==='denied' ? 'danger' : 'warn'}>{r.status}</Pill>
@@ -4098,7 +4238,7 @@ function SelfTestsPanel() {
       <ul className="text-xs space-y-1">
         {results.map((r, i) => (
           <li key={i} className={r.pass ? 'text-green-700' : 'text-red-700'}>
-            {r.pass ? '✔' : '✘'} {r.name}{!r.pass && r.error ? ` – ${r.error}` : ''}
+            {r.pass ? '✔' : '✘'} {r.name}{!r.pass && r.error ? ` - ${r.error}` : ''}
           </li>
         ))}
       </ul>

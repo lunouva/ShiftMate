@@ -3,13 +3,20 @@
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "20"   # pin to Node 20 on Netlify
-  # Production-safe frontend defaults
+  NODE_VERSION = "20"
+  # Set VITE_APP_DOMAIN to your production domain (e.g. shiftway.app)
+  VITE_APP_DOMAIN = "shiftway.app"
+  VITE_API_BASE = "https://api-production-bdb9.up.railway.app"
+  
+  # Production settings
   VITE_ENABLE_DEMO = "0"
   VITE_SHOW_BACKEND_SETTINGS = "0"
   VITE_SHOW_DEMO_CONTROLS = "0"
-  VITE_DEMO_ALLOWED_HOSTS = ""
-  VITE_API_BASE = "https://api-production-bdb9.up.railway.app"  # set to your live backend origin
+
+# Note: For subdomain routing to work (*.shiftway.app), you must:
+# 1. Configure a wildcard DNS record (*.shiftway.app CNAME shiftway.netlify.app)
+# 2. Add the wildcard domain alias in Netlify Domain Settings
+# 3. This catch-all redirect handles routing to the SPA for both root and subdomains
 
 [[redirects]]
   from = "/*"
