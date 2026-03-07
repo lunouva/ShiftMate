@@ -12,6 +12,7 @@ import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import nodemailer from "nodemailer";
 import twilio from "twilio";
 import webpush from "web-push";
+import Stripe from "stripe";
 import pool, { query } from "./db.js";
 
 dotenv.config();
@@ -60,6 +61,18 @@ const allowedWebOrigins = Array.from(APP_ALLOWED_ORIGINS.values());
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-session";
 
+// ── SaaS / Billing ──────────────────────────────────────────────────────────
+const SAAS_DOMAIN = (process.env.SAAS_DOMAIN || "").replace(/^\./, "");
+const TRIAL_DAYS = parseInt(process.env.TRIAL_DAYS || "14", 10);
+
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-04-10" })
+  : null;
+
+if (isProd && !stripe) {
+  console.warn("[shiftway-server] STRIPE_SECRET_KEY not set — billing features disabled");
+}
+
 // Express 4 does not natively forward rejected promises from async handlers.
 // Wrap route handlers so async throw/rejections are consistently surfaced.
 const wrapAsync = (handler) => {
@@ -95,6 +108,17 @@ const authRateLimiter = buildRateLimiter(15 * 60 * 1000, 10);
 const inviteRateLimiter = buildRateLimiter(60 * 60 * 1000, 20);
 const generalApiRateLimiter = buildRateLimiter(60 * 1000, 200);
 
+// Check whether an origin matches the configured SAAS_DOMAIN wildcard (*.shiftway.app)
+const isSubdomainOrigin = (origin) => {
+  if (!SAAS_DOMAIN || !origin) return false;
+  try {
+    const { hostname } = new URL(origin);
+    return hostname.endsWith(`.${SAAS_DOMAIN}`) || hostname === SAAS_DOMAIN;
+  } catch {
+    return false;
+  }
+};
+
 app.use(cors({
   origin: isProd
     ? (origin, cb) => {
@@ -102,11 +126,43 @@ app.use(cors({
         if (!origin) return cb(null, true);
         const normalizedOrigin = normalizeOrigin(origin);
         if (APP_ALLOWED_ORIGINS.has(normalizedOrigin)) return cb(null, true);
+        // Allow any subdomain of SAAS_DOMAIN (e.g. *.shiftway.app)
+        if (isSubdomainOrigin(origin)) return cb(null, true);
         return cb(new Error("origin_not_allowed"));
       }
     : true,
   credentials: true,
 }));
+// Stripe webhook needs raw body — must be registered BEFORE express.json()
+app.post(
+  "/api/billing/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    if (!stripe) return res.status(503).json({ error: "billing_not_configured" });
+
+    const sig = req.headers["stripe-signature"];
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!secret) return res.status(503).json({ error: "webhook_secret_not_configured" });
+
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, secret);
+    } catch (err) {
+      console.error("[stripe-webhook] Signature verification failed:", err.message);
+      return res.status(400).json({ error: "invalid_signature" });
+    }
+
+    try {
+      await handleStripeEvent(event);
+    } catch (err) {
+      console.error("[stripe-webhook] Handler error:", err);
+      return res.status(500).json({ error: "webhook_handler_error" });
+    }
+
+    res.json({ received: true });
+  }
+);
+
 app.use(express.json({ limit: "2mb" }));
 app.use(helmet({
   contentSecurityPolicy: {
@@ -168,7 +224,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       if (!email) return done(new Error("No email from Google"));
       const existing = await query("SELECT * FROM users WHERE email = $1", [email]);
       if (existing.rows[0]) return done(null, existing.rows[0]);
-      const org = await query("INSERT INTO orgs (name) VALUES ($1) RETURNING *", ["New Company"]);
+      const googleOrgSlug = `workspace-${crypto.randomBytes(4).toString("hex")}`;
+      const org = await query("INSERT INTO orgs (name, slug) VALUES ($1, $2) RETURNING *", ["New Company", googleOrgSlug]);
       const location = await query("INSERT INTO locations (org_id, name) VALUES ($1, $2) RETURNING *", [org.rows[0].id, "Main Location"]);
       const user = await query(
         "INSERT INTO users (org_id, location_id, full_name, email, role, is_active) VALUES ($1,$2,$3,$4,$5,true) RETURNING *",
@@ -209,6 +266,188 @@ const requireRole = (...roles) => (req, res, next) => {
   }
   next();
 };
+
+// ── Subdomain → Org slug resolution ─────────────────────────────────────────
+// Extracts the workspace slug from:
+//   1. Host header: coldstone.shiftway.app → "coldstone"
+//   2. X-Org-Slug header (dev/testing fallback)
+// Attaches resolved org to req.org.
+const resolveOrgBySlug = async (req, res, next) => {
+  // Dev override: pass X-Org-Slug header when running locally without real DNS
+  let slug = req.headers["x-org-slug"] || null;
+
+  if (!slug && SAAS_DOMAIN) {
+    const host = (req.headers.host || "").split(":")[0];
+    if (host.endsWith(`.${SAAS_DOMAIN}`)) {
+      slug = host.slice(0, -(SAAS_DOMAIN.length + 1));
+    }
+  }
+
+  if (!slug) return next(); // not a subdomain request — skip
+
+  const orgRes = await query("SELECT * FROM orgs WHERE slug = $1", [slug]);
+  if (!orgRes.rows[0]) return res.status(404).json({ error: "workspace_not_found" });
+  req.org = orgRes.rows[0];
+  next();
+};
+
+// ── Subscription enforcement ──────────────────────────────────────────────────
+// Gates routes behind an active or trialing subscription.
+// Apply after `auth` on any route that should be billing-gated.
+const requireActiveSubscription = async (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: "missing_token" });
+
+  const subRes = await query(
+    "SELECT status, trial_ends_at, current_period_end FROM subscriptions WHERE org_id = $1",
+    [req.user.org_id]
+  );
+  const sub = subRes.rows[0];
+
+  if (!sub) {
+    // No subscription row at all — org was created before billing was wired up.
+    // Grant access (legacy orgs) but emit a warning for ops visibility.
+    console.warn(`[billing] org ${req.user.org_id} has no subscription row — allowing legacy access`);
+    return next();
+  }
+
+  if (sub.status === "active" || sub.status === "trialing") return next();
+
+  return res.status(402).json({
+    error: "billing_required",
+    status: sub.status,
+    message: "Your subscription is inactive. Please update your billing information.",
+  });
+};
+
+// ── Stripe helpers ─────────────────────────────────────────────────────────
+const upsertSubscription = async (orgId, fields) => {
+  const {
+    stripeCustomerId,
+    stripeSubscriptionId,
+    status,
+    plan,
+    trialEndsAt,
+    currentPeriodEnd,
+  } = fields;
+
+  await query(
+    `INSERT INTO subscriptions
+       (org_id, stripe_customer_id, stripe_subscription_id, status, plan, trial_ends_at, current_period_end, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+     ON CONFLICT (org_id) DO UPDATE SET
+       stripe_customer_id     = COALESCE(EXCLUDED.stripe_customer_id,     subscriptions.stripe_customer_id),
+       stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, subscriptions.stripe_subscription_id),
+       status                 = EXCLUDED.status,
+       plan                   = COALESCE(EXCLUDED.plan,                    subscriptions.plan),
+       trial_ends_at          = COALESCE(EXCLUDED.trial_ends_at,           subscriptions.trial_ends_at),
+       current_period_end     = COALESCE(EXCLUDED.current_period_end,      subscriptions.current_period_end),
+       updated_at             = now()`,
+    [
+      orgId,
+      stripeCustomerId || null,
+      stripeSubscriptionId || null,
+      status,
+      plan || null,
+      trialEndsAt ? new Date(trialEndsAt * 1000) : null,
+      currentPeriodEnd ? new Date(currentPeriodEnd * 1000) : null,
+    ]
+  );
+};
+
+const getOrgByStripeCustomerId = async (customerId) => {
+  const res = await query(
+    "SELECT org_id FROM subscriptions WHERE stripe_customer_id = $1",
+    [customerId]
+  );
+  return res.rows[0]?.org_id || null;
+};
+
+const handleStripeEvent = async (event) => {
+  const { type, data } = event;
+  const obj = data.object;
+
+  switch (type) {
+    case "checkout.session.completed": {
+      // Link the Stripe customer to the org and set subscription to active/trialing
+      const orgId = obj.metadata?.org_id;
+      if (!orgId) {
+        console.warn("[stripe-webhook] checkout.session.completed missing org_id metadata");
+        return;
+      }
+      await upsertSubscription(orgId, {
+        stripeCustomerId: obj.customer,
+        stripeSubscriptionId: obj.subscription,
+        status: "active",
+      });
+      break;
+    }
+
+    case "customer.subscription.created":
+    case "customer.subscription.updated": {
+      const orgId = await getOrgByStripeCustomerId(obj.customer);
+      if (!orgId) {
+        console.warn(`[stripe-webhook] ${type} — no org found for customer ${obj.customer}`);
+        return;
+      }
+      await upsertSubscription(orgId, {
+        stripeCustomerId: obj.customer,
+        stripeSubscriptionId: obj.id,
+        status: obj.status,
+        plan: obj.items?.data?.[0]?.price?.id || null,
+        trialEndsAt: obj.trial_end,
+        currentPeriodEnd: obj.current_period_end,
+      });
+      break;
+    }
+
+    case "customer.subscription.deleted": {
+      const orgId = await getOrgByStripeCustomerId(obj.customer);
+      if (!orgId) return;
+      await upsertSubscription(orgId, {
+        stripeCustomerId: obj.customer,
+        stripeSubscriptionId: obj.id,
+        status: "canceled",
+        currentPeriodEnd: obj.current_period_end,
+      });
+      break;
+    }
+
+    case "invoice.paid": {
+      const orgId = await getOrgByStripeCustomerId(obj.customer);
+      if (!orgId) return;
+      await upsertSubscription(orgId, {
+        stripeCustomerId: obj.customer,
+        status: "active",
+        currentPeriodEnd: obj.lines?.data?.[0]?.period?.end || null,
+      });
+      break;
+    }
+
+    case "invoice.payment_failed": {
+      const orgId = await getOrgByStripeCustomerId(obj.customer);
+      if (!orgId) return;
+      await upsertSubscription(orgId, {
+        stripeCustomerId: obj.customer,
+        status: "past_due",
+      });
+      break;
+    }
+
+    default:
+      // Unhandled event — silently ignore
+      break;
+  }
+};
+
+// ── Slug utilities ────────────────────────────────────────────────────────────
+const slugify = (text) =>
+  String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "workspace";
+
+const isValidSlug = (slug) => /^[a-z0-9][a-z0-9-]{1,47}$/.test(slug);
 
 const defaultFlags = () => ({
   unavailabilityEnabled: true,
@@ -375,6 +614,218 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+// ── Public SaaS Signup ───────────────────────────────────────────────────────
+// Creates org + owner + Stripe customer, then redirects to Stripe Checkout.
+// This is the entry point for new businesses signing up on shiftway.app.
+app.post("/api/public/signup", authRateLimiter, async (req, res) => {
+  const { business_name, workspace_slug, owner_name, email, password } = req.body || {};
+
+  const trimmedBusiness = String(business_name || "").trim();
+  const trimmedOwner = String(owner_name || "").trim();
+  const normalizedEmail = normalizeEmailInput(email);
+  const rawPassword = String(password || "");
+  const desiredSlug = String(workspace_slug || "").trim().toLowerCase();
+
+  // Validation
+  if (!trimmedBusiness || !trimmedOwner || !normalizedEmail || !rawPassword) {
+    return res.status(400).json({ error: "missing_fields" });
+  }
+  if (!desiredSlug || !isValidSlug(desiredSlug)) {
+    return res.status(400).json({
+      error: "invalid_slug",
+      message: "Workspace URL must be 2-48 lowercase letters, numbers, or hyphens, and start with a letter or number.",
+    });
+  }
+
+  // Check slug uniqueness
+  const slugCheck = await query("SELECT id FROM orgs WHERE slug = $1", [desiredSlug]);
+  if (slugCheck.rows[0]) {
+    return res.status(400).json({ error: "slug_taken", message: "That workspace URL is already taken." });
+  }
+
+  // Check email uniqueness
+  const emailCheck = await query("SELECT id FROM users WHERE email = $1", [normalizedEmail]);
+  if (emailCheck.rows[0]) {
+    return res.status(400).json({ error: "email_in_use" });
+  }
+
+  const client = pool ? await pool.connect() : null;
+  if (!client) throw new Error("Missing DATABASE_URL");
+
+  let org, user;
+  try {
+    await client.query("BEGIN");
+
+    const orgRes = await client.query(
+      "INSERT INTO orgs (name, slug) VALUES ($1, $2) RETURNING *",
+      [trimmedBusiness, desiredSlug]
+    );
+    org = orgRes.rows[0];
+
+    const locationRes = await client.query(
+      "INSERT INTO locations (org_id, name) VALUES ($1, $2) RETURNING *",
+      [org.id, "Main Location"]
+    );
+    const location = locationRes.rows[0];
+
+    const hash = await bcrypt.hash(rawPassword, 10);
+    const userRes = await client.query(
+      "INSERT INTO users (org_id, location_id, full_name, email, password_hash, role, is_active) VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING *",
+      [org.id, location.id, trimmedOwner, normalizedEmail, hash, "owner"]
+    );
+    user = userRes.rows[0];
+
+    // Seed org state
+    const data = seedState({ locationId: location.id, ownerUser: user });
+    await client.query(
+      "INSERT INTO org_state (org_id, data) VALUES ($1, $2)",
+      [org.id, data]
+    );
+
+    // Create trial subscription row immediately so the user can log in during trial
+    const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+    await client.query(
+      "INSERT INTO subscriptions (org_id, status, trial_ends_at) VALUES ($1, $2, $3)",
+      [org.id, "trialing", trialEndsAt]
+    );
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    client.release();
+    throw err;
+  }
+  client.release();
+
+  const jwtToken = signToken(user);
+
+  // If Stripe is configured, create a customer + checkout session
+  if (stripe && process.env.STRIPE_PRICE_ID) {
+    try {
+      const customer = await stripe.customers.create({
+        email: normalizedEmail,
+        name: trimmedOwner,
+        metadata: { org_id: org.id, org_slug: desiredSlug },
+      });
+
+      // Store the Stripe customer ID immediately
+      await query(
+        "UPDATE subscriptions SET stripe_customer_id = $1 WHERE org_id = $2",
+        [customer.id, org.id]
+      );
+
+      const successUrl = `${APP_URL}/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${APP_URL}/billing/cancel`;
+
+      const checkoutSession = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        customer: customer.id,
+        line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+        trial_period_days: TRIAL_DAYS,
+        subscription_data: { metadata: { org_id: org.id } },
+        metadata: { org_id: org.id },
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      });
+
+      return res.status(201).json({
+        ok: true,
+        token: jwtToken,
+        user: sanitizeUser(user),
+        org: { id: org.id, name: org.name, slug: org.slug },
+        checkout_url: checkoutSession.url,
+        status: "trialing",
+      });
+    } catch (stripeErr) {
+      console.error("[public-signup] Stripe error (non-fatal):", stripeErr.message);
+      // Fall through — user is created, they can subscribe later
+    }
+  }
+
+  // Stripe not configured or failed — return token directly (trial access)
+  res.status(201).json({
+    ok: true,
+    token: jwtToken,
+    user: sanitizeUser(user),
+    org: { id: org.id, name: org.name, slug: org.slug },
+    checkout_url: null,
+    status: "trialing",
+  });
+});
+
+// ── Billing Routes ────────────────────────────────────────────────────────────
+
+// Create a Stripe Checkout session for an existing org (upgrade/re-subscribe)
+app.post("/api/billing/create-checkout-session", auth, async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: "billing_not_configured" });
+  if (!process.env.STRIPE_PRICE_ID) return res.status(503).json({ error: "stripe_price_not_configured" });
+
+  const subRes = await query(
+    "SELECT stripe_customer_id FROM subscriptions WHERE org_id = $1",
+    [req.user.org_id]
+  );
+  const sub = subRes.rows[0];
+
+  // Get or create Stripe customer
+  let customerId = sub?.stripe_customer_id;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: req.user.email,
+      name: req.user.full_name,
+      metadata: { org_id: req.user.org_id },
+    });
+    customerId = customer.id;
+    await query(
+      `INSERT INTO subscriptions (org_id, stripe_customer_id, status)
+       VALUES ($1, $2, 'trialing')
+       ON CONFLICT (org_id) DO UPDATE SET stripe_customer_id = $2, updated_at = now()`,
+      [req.user.org_id, customerId]
+    );
+  }
+
+  const successUrl = `${APP_URL}/billing/success?session_id={CHECKOUT_SESSION_ID}`;
+  const cancelUrl = `${APP_URL}/billing/cancel`;
+
+  const session = await stripe.checkout.sessions.create({
+    mode: "subscription",
+    customer: customerId,
+    line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+    subscription_data: { metadata: { org_id: req.user.org_id } },
+    metadata: { org_id: req.user.org_id },
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  });
+
+  res.json({ checkout_url: session.url });
+});
+
+// Get billing status for the current org
+app.get("/api/billing/status", auth, async (req, res) => {
+  const subRes = await query(
+    "SELECT status, plan, trial_ends_at, current_period_end, stripe_subscription_id FROM subscriptions WHERE org_id = $1",
+    [req.user.org_id]
+  );
+  const sub = subRes.rows[0];
+  if (!sub) return res.json({ status: null, message: "No subscription found." });
+  res.json({
+    status: sub.status,
+    plan: sub.plan,
+    trial_ends_at: sub.trial_ends_at,
+    current_period_end: sub.current_period_end,
+    has_subscription: !!sub.stripe_subscription_id,
+  });
+});
+
+// Validate workspace slug availability (used during public signup form)
+app.get("/api/public/check-slug", async (req, res) => {
+  const slug = String(req.query.slug || "").trim().toLowerCase();
+  if (!slug || !isValidSlug(slug)) {
+    return res.status(400).json({ available: false, error: "invalid_slug" });
+  }
+  const check = await query("SELECT id FROM orgs WHERE slug = $1", [slug]);
+  res.json({ available: !check.rows[0], slug });
+});
+
 app.post("/api/auth/register", authRateLimiter, async (req, res) => {
   const { company_name, full_name, email, password } = req.body || {};
   const trimmedName = String(full_name || "").trim();
@@ -382,7 +833,12 @@ app.post("/api/auth/register", authRateLimiter, async (req, res) => {
   if (!trimmedName || !normalizedEmail || !password) return res.status(400).json({ error: "missing_fields" });
   const existing = await query("SELECT id FROM users WHERE email = $1", [normalizedEmail]);
   if (existing.rows[0]) return res.status(400).json({ error: "email_in_use" });
-  const org = await query("INSERT INTO orgs (name) VALUES ($1) RETURNING *", [company_name || "New Company"]);
+  const orgName = company_name || "New Company";
+  // Generate a unique slug for the org
+  const baseSlug = slugify(orgName);
+  const slugSuffix = crypto.randomBytes(3).toString("hex");
+  const orgSlug = `${baseSlug}-${slugSuffix}`;
+  const org = await query("INSERT INTO orgs (name, slug) VALUES ($1, $2) RETURNING *", [orgName, orgSlug]);
   const location = await query("INSERT INTO locations (org_id, name) VALUES ($1, $2) RETURNING *", [org.rows[0].id, "Main Location"]);
   const hash = await bcrypt.hash(password, 10);
   const userRes = await query(
@@ -555,7 +1011,7 @@ app.patch("/api/me", auth, async (req, res) => {
   res.json({ ok: true, user: sanitizeUser(updatedUser) });
 });
 
-app.get("/api/state", auth, async (req, res) => {
+app.get("/api/state", auth, requireActiveSubscription, async (req, res) => {
   const stateRes = await query("SELECT data FROM org_state WHERE org_id = $1", [req.user.org_id]);
   if (!stateRes.rows[0]) {
     const data = await ensureOrgState(req.user.org_id, req.user.location_id, req.user);
@@ -564,7 +1020,7 @@ app.get("/api/state", auth, async (req, res) => {
   res.json({ data: stateRes.rows[0].data });
 });
 
-app.post("/api/state", auth, async (req, res) => {
+app.post("/api/state", auth, requireActiveSubscription, async (req, res) => {
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: "missing_data" });
   const cleaned = { ...data };
@@ -605,7 +1061,7 @@ app.post("/api/push/subscribe", auth, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/notify", auth, requireRole("manager", "owner"), async (req, res) => {
+app.post("/api/notify", auth, requireActiveSubscription, requireRole("manager", "owner"), async (req, res) => {
   const { user_ids, title, body, channels } = req.body || {};
   if (!Array.isArray(user_ids) || user_ids.length === 0) return res.status(400).json({ error: "missing_recipients" });
   const usersRes = await query("SELECT id, email FROM users WHERE id = ANY($1)", [user_ids]);
@@ -634,7 +1090,7 @@ app.post("/api/notify", auth, requireRole("manager", "owner"), async (req, res) 
   res.json({ ok: true });
 });
 
-app.post("/api/invite", auth, requireRole("manager", "owner"), async (req, res) => {
+app.post("/api/invite", auth, requireActiveSubscription, requireRole("manager", "owner"), async (req, res) => {
   const { full_name, email, phone, role, location_id } = req.body || {};
   const trimmedName = String(full_name || "").trim();
   const normalizedEmail = normalizeEmailInput(email);
