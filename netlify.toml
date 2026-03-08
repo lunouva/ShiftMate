@@ -4,14 +4,12 @@
 
 [build.environment]
   NODE_VERSION = "20"
-  # Set VITE_APP_DOMAIN to your production domain (e.g. shiftway.app)
-  VITE_APP_DOMAIN = "shiftway.app"
-  VITE_API_BASE = "https://api-production-bdb9.up.railway.app"
-  
-  # Production settings
-  VITE_ENABLE_DEMO = "0"
-  VITE_SHOW_BACKEND_SETTINGS = "0"
-  VITE_SHOW_DEMO_CONTROLS = "0"
+  # Environment secrets live in the Netlify dashboard:
+  #   - VITE_APP_DOMAIN
+  #   - VITE_API_BASE
+  #   - VITE_ENABLE_DEMO
+  #   - VITE_SHOW_BACKEND_SETTINGS
+  #   - VITE_SHOW_DEMO_CONTROLS
 
 # Note: For subdomain routing to work (*.shiftway.app), you must:
 # 1. Configure a wildcard DNS record (*.shiftway.app CNAME shiftway.netlify.app)

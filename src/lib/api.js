@@ -5,18 +5,13 @@
 
 export const TOKEN_KEY = 'shiftway_token';
 
-export const getApiBase = (clientSettings) => {
-  const fromSettings = clientSettings?.apiBase;
-  if (fromSettings) return fromSettings;
+const API_BASE = (import.meta.env.VITE_API_BASE && import.meta.env.VITE_API_BASE.trim())
+  ? import.meta.env.VITE_API_BASE.trim()
+  : ((typeof window !== 'undefined' && window.location.hostname && ['localhost', '127.0.0.1'].includes(window.location.hostname))
+      ? 'http://localhost:3000'
+      : 'https://api.shiftway.app');
 
-  const fromEnv = import.meta.env.VITE_API_BASE;
-  if (fromEnv) return fromEnv;
-
-  const host = window?.location?.hostname;
-  const isLocalhost = host === 'localhost' || host === '127.0.0.1';
-  if (isLocalhost) return 'http://localhost:4000';
-  return window.location.origin;
-};
+export const getApiBase = () => API_BASE;
 
 const friendlyApiError = (code) => {
   const map = {

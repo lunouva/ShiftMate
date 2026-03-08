@@ -14,6 +14,7 @@ import {
   ProfileIcon,
   InfoIcon,
 } from "./components/Icons";
+import { apiFetch, BillingRequiredError, TOKEN_KEY, getApiBase } from "./lib/api.js";
 
 /* tailwind-safelist: bg-brand bg-brand-dark bg-brand-darker bg-brand-light bg-brand-lightest text-brand-dark text-brand-darker text-brand-text border-brand border-brand-dark border-brand-light */
 
@@ -168,7 +169,6 @@ const SHOW_DEMO_CONTROLS = import.meta?.env?.VITE_SHOW_DEMO_CONTROLS === '1';
 
 const STORAGE_KEY = "shiftway_v2";
 const CLIENT_SETTINGS_KEY = "shiftway_client_settings";
-const TOKEN_KEY = "shiftway_token";
 
 const defaultClientSettings = () => ({
   apiBase: "",
@@ -312,175 +312,6 @@ const loadData = () => {
 };
 
 const saveLocalData = (data) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-
-const getApiBase = (clientSettings) => {
-  const fromSettings = clientSettings?.apiBase;
-  if (fromSettings) return fromSettings;
-
-  const fromEnv = import.meta.env.VITE_API_BASE;
-  if (fromEnv) return fromEnv;
-
-  // Sensible default:
-  // - local dev: backend runs on :4000
-  // - deployed: assume same-origin backend unless explicitly configured
-  const host = window?.location?.hostname;
-  const isLocalhost = host === "localhost" || host === "127.0.0.1";
-  if (isLocalhost) return "http://localhost:4000";
-  return window.location.origin;
-};
-
-const friendlyApiError = (code) => {
-  const map = {
-    missing_fields: "Please fill in all required fields.",
-    missing_email: "Please enter an email address.",
-    email_in_use: "That email is already in use. Try signing in instead.",
-    invalid_invite: "This invite link is invalid, expired, or has already been used.",
-    invalid_credentials: "Invalid email or password.",
-    missing_token: "Your session is missing. Please sign in again.",
-    invalid_token: "Your login link or session is no longer valid. Please sign in again.",
-    token_expired: "Your session expired. Please sign in again.",
-    invalid_user: "Your account could not be found. Please sign in again.",
-    not_found: "That item no longer exists.",
-    forbidden: "You don't have permission to do that.",
-    missing_data: "Nothing to save yet. Refresh and try again.",
-    missing_recipients: "Select at least one recipient before sending a notification.",
-    missing_subscription: "Push subscription is missing. Re-enable notifications and try again.",
-    internal_error: "The server hit an unexpected error. Please retry in a moment.",
-    service_unavailable: "The backend is temporarily unavailable. Please retry in a moment.",
-    bad_gateway: "The backend is temporarily unavailable behind a proxy. Please retry in a moment.",
-    gateway_timeout: "The backend took too long to respond. Please retry in a moment.",
-    invalid_json: "The server could not read that request. Please refresh and try again.",
-    invalid_password: "Your current password is incorrect.",
-    payload_too_large: "That request is too large. Try a smaller upload or shorter message.",
-    db_not_configured: "Backend is running, but database configuration is missing.",
-    db_unreachable: "Backend is running, but it cannot reach the database.",
-  };
-  return map[String(code || "").toLowerCase()] || "";
-};
-
-const formatRetryAfter = (retryAfterHeader) => {
-  if (!retryAfterHeader) return "";
-  const asSeconds = Number(retryAfterHeader);
-  if (Number.isFinite(asSeconds) && asSeconds > 0) {
-    return ` Try again in about ${Math.max(1, Math.round(asSeconds))}s.`;
-  }
-
-  const at = new Date(retryAfterHeader);
-  if (Number.isFinite(at.getTime())) {
-    const seconds = Math.round((at.getTime() - Date.now()) / 1000);
-    if (seconds > 0) return ` Try again in about ${seconds}s.`;
-  }
-
-  return "";
-};
-
-// Billing required sentinel - caught in App and shown via BillingGate
-class BillingRequiredError extends Error {
-  constructor(message) {
-    super(message || "An active subscription is required.");
-    this.name = "BillingRequiredError";
-  }
-}
-
-const apiFetch = async (path, { token, method = "GET", body, timeoutMs = 10000, orgSlug } = {}, clientSettings) => {
-  const apiBase = getApiBase(clientSettings).replace(/\/$/, "");
-  let res;
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    res = await fetch(`${apiBase}${path}`, {
-      method,
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(orgSlug ? { "X-Org-Slug": orgSlug } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-  } catch (e) {
-    if (e?.name === 'AbortError') throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s. Check server health and try again.`);
-    // Network / CORS / DNS / refused connection
-    const root = e?.message ? `Network error: ${e.message}` : "Network error";
-    throw new Error(`${root}. Could not reach ${apiBase}. Check VITE_API_BASE/server URL and CORS settings.`);
-  } finally {
-    clearTimeout(t);
-  }
-
-  const ct = res.headers.get("content-type") || "";
-  const isJson = ct.includes("application/json");
-  const requestId = res.headers.get("x-request-id") || res.headers.get("x-correlation-id");
-  const withRequestId = (text) => requestId ? `${text} (request id: ${requestId})` : text;
-
-  if (!res.ok) {
-    // If auth expired, clear local token so the UI can return to login cleanly.
-    if (res.status === 401 && token) {
-      try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
-    }
-
-    let msg = "";
-    try {
-      if (isJson) {
-        const j = await res.json();
-        msg = friendlyApiError(j?.error) || j?.message || j?.error || JSON.stringify(j);
-      } else {
-        msg = await res.text();
-      }
-    } catch {
-      // ignore parse errors
-    }
-
-    const prefix = `Request failed (${res.status}${res.statusText ? ` ${res.statusText}` : ""})`;
-
-    // Billing required - throw special error so App can show BillingGate
-    if (res.status === 402) {
-      throw new BillingRequiredError(msg || "An active subscription is required to access this workspace.");
-    }
-
-    // Give users actionable, human-readable failures in Live mode.
-    if (res.status === 401) {
-      throw new Error(withRequestId(msg || "Session expired. Please log in again."));
-    }
-    if (res.status === 403) {
-      throw new Error(withRequestId(msg || "You don't have permission to do that."));
-    }
-    if (res.status === 429) {
-      const retryHint = formatRetryAfter(res.headers.get("retry-after"));
-      const detail = msg || "Too many requests. Please wait a moment and try again.";
-      throw new Error(withRequestId(`${detail}${retryHint}`));
-    }
-    if (res.status === 502) {
-      throw new Error(withRequestId(msg || "Upstream backend error (502). Please retry in a moment."));
-    }
-    if (res.status === 503) {
-      const retryHint = formatRetryAfter(res.headers.get("retry-after"));
-      const detail = msg || "Backend is temporarily unavailable (503). Please retry in a moment.";
-      throw new Error(withRequestId(`${detail}${retryHint}`));
-    }
-    if (res.status === 504) {
-      throw new Error(withRequestId(msg || "Backend timed out (504). Please retry in a moment."));
-    }
-    if (res.status >= 500) {
-      throw new Error(withRequestId(msg || "Server error. Please try again in a moment."));
-    }
-    if (res.status === 404) {
-      throw new Error(withRequestId(msg || "That item no longer exists or the endpoint was not found."));
-    }
-    if (res.status === 413) {
-      throw new Error(withRequestId(msg || "Request payload is too large. Try again with a smaller request."));
-    }
-
-    throw new Error(withRequestId(msg ? `${prefix}: ${msg}` : prefix));
-  }
-
-  if (!isJson) return null;
-
-  try {
-    return await res.json();
-  } catch {
-    throw new Error(withRequestId("Backend returned malformed JSON. Check server logs and retry."));
-  }
-};
 
 // ---------- small UI bits ----------
 function Section({ title, right, children, flush = false }) {
