@@ -944,11 +944,15 @@ export default function App({ workspaceSlug } = {}) {
   useEffect(() => {
     if (isInviteAcceptRoute) return;
     const params = new URLSearchParams(window.location.search);
-    const token = params.get("token");
+    const hash = String(window.location.hash || "");
+    const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+    const token = hashParams.get("token") || params.get("token");
     if (token) {
       localStorage.setItem(TOKEN_KEY, token);
       params.delete("token");
-      const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}${window.location.hash || ""}`;
+      hashParams.delete("token");
+      const nextHash = hashParams.toString();
+      const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}${nextHash ? `#${nextHash}` : ""}`;
       window.history.replaceState({}, "", next);
     }
   }, [isInviteAcceptRoute]);

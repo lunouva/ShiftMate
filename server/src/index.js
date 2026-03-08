@@ -107,6 +107,10 @@ const buildRateLimiter = (windowMs, max) => rateLimit({
 const authRateLimiter = buildRateLimiter(15 * 60 * 1000, 10);
 const inviteRateLimiter = buildRateLimiter(60 * 60 * 1000, 20);
 const generalApiRateLimiter = buildRateLimiter(60 * 1000, 200);
+const publicSignupRateLimiter = buildRateLimiter(15 * 60 * 1000, 15);
+const publicSlugCheckRateLimiter = buildRateLimiter(60 * 1000, 60);
+const billingRateLimiter = buildRateLimiter(15 * 60 * 1000, 60);
+const magicVerifyRateLimiter = buildRateLimiter(15 * 60 * 1000, 30);
 
 // Check whether an origin matches the configured SAAS_DOMAIN wildcard (*.shiftway.app)
 const isSubdomainOrigin = (origin) => {
@@ -117,6 +121,37 @@ const isSubdomainOrigin = (origin) => {
   } catch {
     return false;
   }
+};
+
+const isAllowedRedirectUrl = (candidate) => {
+  const value = String(candidate || "").trim();
+  if (!value) return false;
+
+  try {
+    const parsed = new URL(value);
+    if (!["http:", "https:"].includes(parsed.protocol)) return false;
+    const origin = normalizeOrigin(parsed.origin);
+    return APP_ALLOWED_ORIGINS.has(origin) || isSubdomainOrigin(parsed.origin);
+  } catch {
+    return false;
+  }
+};
+
+const resolveSafeRedirectUrl = (candidate, fallbackUrl = APP_URL) => {
+  const fallback = isAllowedRedirectUrl(fallbackUrl) ? fallbackUrl : APP_URL;
+  const fallbackOrigin = new URL(fallback).origin;
+  const value = String(candidate || "").trim();
+  if (!value) return fallback;
+
+  if (value.startsWith("/")) {
+    try {
+      return new URL(value, `${fallbackOrigin}/`).toString();
+    } catch {
+      return fallback;
+    }
+  }
+
+  return isAllowedRedirectUrl(value) ? value : fallback;
 };
 
 app.use(cors({
@@ -196,6 +231,7 @@ if (isProd) {
 
 app.use("/api", generalApiRateLimiter);
 app.use("/api/invite", inviteRateLimiter);
+app.use("/api/billing", billingRateLimiter);
 
 app.use(session({
   secret: SESSION_SECRET,
@@ -448,6 +484,69 @@ const slugify = (text) =>
     .slice(0, 48) || "workspace";
 
 const isValidSlug = (slug) => /^[a-z0-9][a-z0-9-]{1,47}$/.test(slug);
+const RESERVED_SLUGS = new Set(["api", "www", "admin", "app", "billing", "support", "help"]);
+const isReservedSlug = (slug) => RESERVED_SLUGS.has(String(slug || "").trim().toLowerCase());
+
+const ORG_STATE_KEYS = new Set([
+  "locations",
+  "positions",
+  "users",
+  "schedules",
+  "time_off_requests",
+  "unavailability",
+  "news_posts",
+  "tasks",
+  "task_templates",
+  "messages",
+  "shift_swaps",
+  "open_shift_claims",
+  "notification_settings",
+  "feature_flags",
+]);
+
+const isPlainObject = (value) => (
+  value != null
+  && typeof value === "object"
+  && !Array.isArray(value)
+);
+
+const validateOrgStatePayload = (data) => {
+  if (!isPlainObject(data)) return { ok: false, error: "invalid_state_payload" };
+  const keys = Object.keys(data);
+  if (keys.some((key) => !ORG_STATE_KEYS.has(key))) {
+    return { ok: false, error: "invalid_state_keys" };
+  }
+
+  const arrayKeys = [
+    "locations",
+    "positions",
+    "users",
+    "schedules",
+    "time_off_requests",
+    "unavailability",
+    "news_posts",
+    "tasks",
+    "task_templates",
+    "messages",
+    "shift_swaps",
+    "open_shift_claims",
+  ];
+
+  for (const key of arrayKeys) {
+    if (hasOwn(data, key) && !Array.isArray(data[key])) {
+      return { ok: false, error: "invalid_state_payload" };
+    }
+  }
+
+  if (hasOwn(data, "notification_settings") && !isPlainObject(data.notification_settings)) {
+    return { ok: false, error: "invalid_state_payload" };
+  }
+  if (hasOwn(data, "feature_flags") && !isPlainObject(data.feature_flags)) {
+    return { ok: false, error: "invalid_state_payload" };
+  }
+
+  return { ok: true };
+};
 
 const defaultFlags = () => ({
   unavailabilityEnabled: true,
@@ -617,7 +716,7 @@ app.get("/api/health", async (req, res) => {
 // ── Public SaaS Signup ───────────────────────────────────────────────────────
 // Creates org + owner + Stripe customer, then redirects to Stripe Checkout.
 // This is the entry point for new businesses signing up on shiftway.app.
-app.post("/api/public/signup", authRateLimiter, async (req, res) => {
+app.post("/api/public/signup", publicSignupRateLimiter, async (req, res) => {
   const { business_name, workspace_slug, owner_name, email, password } = req.body || {};
 
   const trimmedBusiness = String(business_name || "").trim();
@@ -634,6 +733,12 @@ app.post("/api/public/signup", authRateLimiter, async (req, res) => {
     return res.status(400).json({
       error: "invalid_slug",
       message: "Workspace URL must be 2-48 lowercase letters, numbers, or hyphens, and start with a letter or number.",
+    });
+  }
+  if (isReservedSlug(desiredSlug)) {
+    return res.status(400).json({
+      error: "invalid_slug",
+      message: "That workspace URL is reserved.",
     });
   }
 
@@ -756,7 +861,7 @@ app.post("/api/public/signup", authRateLimiter, async (req, res) => {
 // ── Billing Routes ────────────────────────────────────────────────────────────
 
 // Create a Stripe Checkout session for an existing org (upgrade/re-subscribe)
-app.post("/api/billing/create-checkout-session", auth, async (req, res) => {
+app.post("/api/billing/create-checkout-session", auth, requireRole("owner"), async (req, res) => {
   if (!stripe) return res.status(503).json({ error: "billing_not_configured" });
   if (!process.env.STRIPE_PRICE_ID) return res.status(503).json({ error: "stripe_price_not_configured" });
 
@@ -817,10 +922,13 @@ app.get("/api/billing/status", auth, async (req, res) => {
 });
 
 // Validate workspace slug availability (used during public signup form)
-app.get("/api/public/check-slug", async (req, res) => {
+app.get("/api/public/check-slug", publicSlugCheckRateLimiter, async (req, res) => {
   const slug = String(req.query.slug || "").trim().toLowerCase();
   if (!slug || !isValidSlug(slug)) {
     return res.status(400).json({ available: false, error: "invalid_slug" });
+  }
+  if (isReservedSlug(slug)) {
+    return res.json({ available: false, slug, error: "reserved_slug" });
   }
   const check = await query("SELECT id FROM orgs WHERE slug = $1", [slug]);
   res.json({ available: !check.rows[0], slug });
@@ -874,12 +982,13 @@ app.post("/api/auth/magic/request", authRateLimiter, async (req, res) => {
   const token = crypto.randomBytes(32).toString("hex");
   const expires = new Date(Date.now() + 15 * 60 * 1000);
   await query("INSERT INTO magic_links (user_id, token, expires_at) VALUES ($1,$2,$3)", [user.id, token, expires]);
-  const url = `${APP_URL}/api/auth/magic/verify?token=${token}&redirect=${encodeURIComponent(redirect_url || APP_URL)}`;
+  const safeRedirect = resolveSafeRedirectUrl(redirect_url, APP_URL);
+  const url = `${APP_URL}/api/auth/magic/verify?token=${token}&redirect=${encodeURIComponent(safeRedirect)}`;
   await sendEmail({ to: normalizedEmail, subject: "Your Shiftway login link", text: `Click to sign in: ${url}` });
   res.json({ ok: true });
 });
 
-app.get("/api/auth/magic/verify", async (req, res) => {
+app.get("/api/auth/magic/verify", magicVerifyRateLimiter, async (req, res) => {
   const { token, redirect } = req.query;
   if (!token) return res.status(400).send("Missing token");
   const linkRes = await query("SELECT * FROM magic_links WHERE token = $1", [token]);
@@ -889,12 +998,13 @@ app.get("/api/auth/magic/verify", async (req, res) => {
   const userRes = await query("SELECT * FROM users WHERE id = $1", [link.user_id]);
   const user = userRes.rows[0];
   const jwtToken = signToken(user);
-  const redirectUrl = (redirect || APP_URL).toString();
-  const sep = redirectUrl.includes("?") ? "&" : "?";
-  res.redirect(`${redirectUrl}${sep}token=${jwtToken}`);
+  const redirectUrl = resolveSafeRedirectUrl(redirect, APP_URL);
+  const safe = new URL(redirectUrl);
+  safe.hash = `token=${encodeURIComponent(jwtToken)}`;
+  res.redirect(safe.toString());
 });
 
-app.post("/api/auth/magic/verify", async (req, res) => {
+app.post("/api/auth/magic/verify", magicVerifyRateLimiter, async (req, res) => {
   const { token } = req.body || {};
   if (!token) return res.status(400).json({ error: "missing_token" });
   const linkRes = await query("SELECT * FROM magic_links WHERE token = $1", [token]);
@@ -908,19 +1018,38 @@ app.post("/api/auth/magic/verify", async (req, res) => {
 });
 
 app.get("/api/auth/google", (req, res, next) => {
-  const redirect = req.query.redirect || APP_URL;
-  const state = encodeURIComponent(String(redirect));
   if (!passport._strategy("google")) return res.status(400).send("Google OAuth not configured");
-  passport.authenticate("google", { scope: ["profile", "email"], state })(req, res, next);
+  const nonce = crypto.randomBytes(24).toString("hex");
+  const redirectUrl = resolveSafeRedirectUrl(req.query.redirect, APP_URL);
+  req.session.google_oauth = {
+    nonce,
+    redirect_url: redirectUrl,
+    created_at: Date.now(),
+  };
+  passport.authenticate("google", { scope: ["profile", "email"], state: nonce })(req, res, next);
 });
 
 app.get("/api/auth/google/callback", (req, res, next) => {
+  const pending = req.session?.google_oauth;
+  const incomingState = String(req.query.state || "");
+  const expectedState = typeof pending?.nonce === "string" ? pending.nonce : "";
+  const sameLength = expectedState.length > 0 && incomingState.length === expectedState.length;
+  const isStateValid = !!pending
+    && sameLength
+    && crypto.timingSafeEqual(Buffer.from(expectedState), Buffer.from(incomingState))
+    && Number.isFinite(pending.created_at)
+    && (Date.now() - pending.created_at) <= (10 * 60 * 1000);
+  const safeRedirect = resolveSafeRedirectUrl(pending?.redirect_url, APP_URL);
+  if (req.session) delete req.session.google_oauth;
+  if (!isStateValid) {
+    return res.status(400).send("Invalid OAuth state");
+  }
   passport.authenticate("google", { failureRedirect: APP_URL })(req, res, () => {
     const user = req.user;
     const token = signToken(user);
-    const redirect = req.query.state ? decodeURIComponent(req.query.state) : APP_URL;
-    const sep = redirect.includes("?") ? "&" : "?";
-    res.redirect(`${redirect}${sep}token=${token}`);
+    const redirectWithToken = new URL(safeRedirect);
+    redirectWithToken.hash = `token=${encodeURIComponent(token)}`;
+    res.redirect(redirectWithToken.toString());
   });
 });
 
@@ -1020,9 +1149,11 @@ app.get("/api/state", auth, requireActiveSubscription, async (req, res) => {
   res.json({ data: stateRes.rows[0].data });
 });
 
-app.post("/api/state", auth, requireActiveSubscription, async (req, res) => {
+app.post("/api/state", auth, requireActiveSubscription, requireRole("manager", "owner"), async (req, res) => {
   const { data } = req.body || {};
   if (!data) return res.status(400).json({ error: "missing_data" });
+  const validation = validateOrgStatePayload(data);
+  if (!validation.ok) return res.status(400).json({ error: validation.error });
   const cleaned = { ...data };
   if (Array.isArray(cleaned.users)) {
     cleaned.users = cleaned.users.map((u) => ({ ...u, password: undefined }));
@@ -1031,17 +1162,33 @@ app.post("/api/state", auth, requireActiveSubscription, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/users", auth, requireRole("manager", "owner"), async (req, res) => {
+app.post("/api/users", auth, requireActiveSubscription, requireRole("manager", "owner"), async (req, res) => {
   const { full_name, email, role, location_id, password } = req.body || {};
   if (!full_name || !email) return res.status(400).json({ error: "missing_fields" });
   const normalizedEmail = normalizeEmailInput(email);
   if (!normalizedEmail) return res.status(400).json({ error: "missing_fields" });
+  const requestedRole = String(role || "employee").trim().toLowerCase();
+  if (!["employee", "manager", "owner"].includes(requestedRole)) {
+    return res.status(400).json({ error: "invalid_role" });
+  }
+  if (requestedRole === "owner" && req.user.role !== "owner") {
+    return res.status(403).json({ error: "forbidden" });
+  }
   const existing = await query("SELECT id FROM users WHERE email = $1", [normalizedEmail]);
   if (existing.rows[0]) return res.status(400).json({ error: "email_in_use" });
+  let resolvedLocationId = req.user.location_id;
+  if (location_id) {
+    const locationRes = await query(
+      "SELECT id FROM locations WHERE id = $1 AND org_id = $2",
+      [location_id, req.user.org_id]
+    );
+    if (!locationRes.rows[0]) return res.status(404).json({ error: "not_found" });
+    resolvedLocationId = locationRes.rows[0].id;
+  }
   const hash = password ? await bcrypt.hash(password, 10) : null;
   const userRes = await query(
     "INSERT INTO users (org_id, location_id, full_name, email, password_hash, role, is_active) VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING *",
-    [req.user.org_id, location_id || req.user.location_id, full_name, normalizedEmail, hash, role || "employee"]
+    [req.user.org_id, resolvedLocationId, full_name, normalizedEmail, hash, requestedRole]
   );
   res.json({ user: sanitizeUser(userRes.rows[0]) });
 });
@@ -1064,7 +1211,21 @@ app.post("/api/push/subscribe", auth, async (req, res) => {
 app.post("/api/notify", auth, requireActiveSubscription, requireRole("manager", "owner"), async (req, res) => {
   const { user_ids, title, body, channels } = req.body || {};
   if (!Array.isArray(user_ids) || user_ids.length === 0) return res.status(400).json({ error: "missing_recipients" });
-  const usersRes = await query("SELECT id, email FROM users WHERE id = ANY($1)", [user_ids]);
+  const recipientIds = [...new Set(
+    user_ids
+      .map((id) => String(id || "").trim())
+      .filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+  )];
+  if (recipientIds.length === 0 || recipientIds.length !== user_ids.length) {
+    return res.status(400).json({ error: "invalid_recipients" });
+  }
+  const usersRes = await query(
+    "SELECT id, email FROM users WHERE org_id = $1 AND id = ANY($2::uuid[])",
+    [req.user.org_id, recipientIds]
+  );
+  if (usersRes.rows.length !== recipientIds.length) {
+    return res.status(400).json({ error: "invalid_recipients" });
+  }
   const stateRes = await query("SELECT data FROM org_state WHERE org_id = $1", [req.user.org_id]);
   const stateUsers = stateRes.rows[0]?.data?.users || [];
   const userById = Object.fromEntries(stateUsers.map((u) => [u.id, u]));
@@ -1083,7 +1244,13 @@ app.post("/api/notify", auth, requireActiveSubscription, requireRole("manager", 
     }));
   }
   if (pushEnabled) {
-    const subsRes = await query("SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ANY($1)", [user_ids]);
+    const subsRes = await query(
+      `SELECT ps.endpoint, ps.p256dh, ps.auth
+       FROM push_subscriptions ps
+       JOIN users u ON u.id = ps.user_id
+       WHERE u.org_id = $1 AND ps.user_id = ANY($2::uuid[])`,
+      [req.user.org_id, recipientIds]
+    );
     const subs = subsRes.rows.map((s) => ({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }));
     await sendPush({ subscriptions: subs, title, body });
   }
@@ -1159,13 +1326,6 @@ app.post("/api/invite/accept", async (req, res) => {
   if (!inviteToken) return res.status(400).json({ error: "missing_token" });
   if (!trimmedName || !rawPassword) return res.status(400).json({ error: "missing_fields" });
 
-  const invite = await getInviteByToken(inviteToken);
-  if (!invite || invite.error) return res.status(400).json({ error: "invalid_invite" });
-
-  const passwordHash = await bcrypt.hash(rawPassword, 10);
-  const fallbackEmail = `invite+${invite.id}@phone.shiftway.local`;
-  const userEmail = String(invite.email || fallbackEmail).toLowerCase();
-
   const client = pool ? await pool.connect() : null;
   if (!client) {
     throw new Error(
@@ -1175,6 +1335,20 @@ app.post("/api/invite/accept", async (req, res) => {
 
   try {
     await client.query("BEGIN");
+
+    const inviteRes = await client.query(
+      "SELECT * FROM invites WHERE token = $1 FOR UPDATE",
+      [inviteToken]
+    );
+    const invite = inviteRes.rows[0];
+    if (!invite || invite.accepted_at || new Date(invite.expires_at) < new Date()) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "invalid_invite" });
+    }
+
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const fallbackEmail = `invite+${invite.id}@phone.shiftway.local`;
+    const userEmail = String(invite.email || fallbackEmail).toLowerCase();
 
     const existingUserRes = await client.query("SELECT id FROM users WHERE email = $1", [userEmail]);
     if (existingUserRes.rows[0]) {
@@ -1188,7 +1362,14 @@ app.post("/api/invite/accept", async (req, res) => {
     );
     const user = userRes.rows[0];
 
-    await client.query("UPDATE invites SET accepted_at = now() WHERE id = $1", [invite.id]);
+    const markAcceptedRes = await client.query(
+      "UPDATE invites SET accepted_at = now() WHERE id = $1 AND accepted_at IS NULL RETURNING id",
+      [invite.id]
+    );
+    if (!markAcceptedRes.rows[0]) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "invalid_invite" });
+    }
 
     const stateRes = await client.query("SELECT data FROM org_state WHERE org_id = $1", [invite.org_id]);
     const state = stateRes.rows[0]?.data || emptyOrgState();
