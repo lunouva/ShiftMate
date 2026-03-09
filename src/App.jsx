@@ -1,4 +1,7 @@
 import React, { useEffect, useMemo, useState, createContext, useContext } from "react";
+import shiftwayLogo from "./assets/logos/logo-wordmark.png";
+import shiftwayLogoMono from "./assets/logos/logo-wordmark-mono.png";
+import shiftwayLogoFull from "./assets/logos/logo-full.png";
 import { createPortal } from "react-dom";
 import {
   ScheduleIcon,
@@ -1767,13 +1770,7 @@ function InnerApp(props) {
         <div className="mb-6 px-4">
           <div className="rounded-[1.75rem] border border-white/10 bg-white/10 p-3 shadow-lg shadow-black/10">
             <div className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-brand via-brand-dark to-brand-darker text-xl font-black text-white shadow-lg shadow-brand-darker/40 ring-1 ring-white/20">
-                ✦
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-brand-lightest/80">Shiftway</div>
-                <div className="text-lg font-black text-white">Staffing Hub</div>
-              </div>
+              <img src={shiftwayLogoMono} alt="ShiftWay" className="h-8 w-auto invert" />
             </div>
             <div className="mt-3 rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white/80">
               {isManager ? "Warm scheduling for your whole team" : "Your week, messages, and requests"}
@@ -1808,7 +1805,7 @@ function InnerApp(props) {
         <div className="flex items-center gap-3">
           <button className="rounded-xl bg-white p-2 text-brand-dark shadow-sm" onClick={() => setMobileMenuOpen((v) => !v)}>☰</button>
           <div>
-            <div className="font-black text-brand-text">Shiftway</div>
+            <img src={shiftwayLogo} alt="ShiftWay" className="h-7 w-auto" />
             <div className="text-xs text-brand-dark">{navItems.find((item) => item.id === tab)?.label || "Schedule"}</div>
           </div>
         </div>
@@ -1828,7 +1825,7 @@ function InnerApp(props) {
           <div className="h-full w-[280px] rounded-r-[2rem] bg-brand-darker p-4 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <div className="text-xl font-black">Shiftway</div>
+                <img src={shiftwayLogoMono} alt="ShiftWay" className="mb-1 h-7 w-auto invert" />
                 <div className="text-xs text-white/70">{currentStateUser.full_name}</div>
               </div>
               <button className="rounded-xl p-2 hover:bg-white/10" onClick={() => setMobileMenuOpen(false)}>✕</button>
@@ -3055,7 +3052,7 @@ function InviteAcceptPage({ clientSettings }) {
   return (
     <div className="mx-auto grid min-h-[70vh] max-w-md place-items-center p-6">
       <div className="w-full rounded-2xl border p-6 shadow-sm">
-        <h1 className="mb-1 text-2xl font-black">Shiftway</h1>
+        <img src={shiftwayLogoFull} alt="ShiftWay" className="mb-4 h-14 w-auto" />
         <div className="mb-4 text-brand-dark">Accept your invite</div>
         {err && <div className="mb-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">{err}</div>}
         {loading && <div className="rounded-xl border p-3 text-sm">Verifying your invite…</div>}
@@ -3128,7 +3125,7 @@ function LoginPage({ onAfterLogin, backendMode }) {
   return (
     <div className="mx-auto grid min-h-[70vh] max-w-md place-items-center p-6">
       <div className="w-full rounded-2xl border p-6 shadow-sm">
-        <h1 className="mb-1 text-2xl font-black">Shiftway</h1>
+        <img src={shiftwayLogoFull} alt="ShiftWay" className="mb-4 h-14 w-auto" />
         <div className="mb-4 text-brand-dark">{mode === "register" ? "Create your company" : mode === "magic" ? "Magic link" : "Sign in"}</div>
         {err && <div className="mb-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">{err}</div>}
         {msg && <div className="mb-3 rounded-lg bg-green-50 p-2 text-sm text-green-700">{msg}</div>}
