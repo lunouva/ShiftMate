@@ -82,6 +82,47 @@ for (const method of ["get", "post", "put", "patch", "delete"]) {
 
 const normalizeEmailInput = (value) => String(value || "").trim().toLowerCase();
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const parsePositiveIntEnv = (name, fallback) => {
+  const value = Number.parseInt(String(process.env[name] || "").trim(), 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+const serializeError = (err) => {
+  if (!err) return null;
+  return {
+    name: err.name || "Error",
+    message: err.message || String(err),
+    code: err.code || null,
+    response_code: err.responseCode || null,
+    command: err.command || null,
+  };
+};
+const maskEmailAddress = (value) => {
+  const normalized = normalizeEmailInput(value);
+  if (!normalized.includes("@")) return normalized ? "***" : "";
+  const [localPart, domainPart] = normalized.split("@");
+  const safeLocal = localPart.length <= 2
+    ? `${localPart.slice(0, 1)}***`
+    : `${localPart.slice(0, 2)}***`;
+  return `${safeLocal}@${domainPart}`;
+};
+const logStructured = (level, event, fields = {}) => {
+  const entry = {
+    ts: new Date().toISOString(),
+    level,
+    event,
+    ...fields,
+  };
+  const line = JSON.stringify(entry);
+  if (level === "error") {
+    console.error(line);
+    return;
+  }
+  if (level === "warn") {
+    console.warn(line);
+    return;
+  }
+  console.log(line);
+};
 const rateLimitHandler = (req, res) => res.status(429).json({ error: "too_many_requests" });
 const buildRateLimiter = (windowMs, max) => rateLimit({
   windowMs,
@@ -94,6 +135,10 @@ const buildRateLimiter = (windowMs, max) => rateLimit({
 const authRateLimiter = buildRateLimiter(15 * 60 * 1000, 10);
 const inviteRateLimiter = buildRateLimiter(60 * 60 * 1000, 20);
 const generalApiRateLimiter = buildRateLimiter(60 * 1000, 200);
+const SMTP_CONNECTION_TIMEOUT_MS = parsePositiveIntEnv("SMTP_CONNECTION_TIMEOUT_MS", 5000);
+const SMTP_GREETING_TIMEOUT_MS = parsePositiveIntEnv("SMTP_GREETING_TIMEOUT_MS", 5000);
+const SMTP_SOCKET_TIMEOUT_MS = parsePositiveIntEnv("SMTP_SOCKET_TIMEOUT_MS", 15000);
+const SMTP_SEND_TIMEOUT_MS = parsePositiveIntEnv("SMTP_SEND_TIMEOUT_MS", 8000);
 
 app.use(cors({
   origin: isProd
@@ -269,7 +314,12 @@ const ensureOrgState = async (orgId, locationId, ownerUser) => {
 
 const mailer = (() => {
   if (!process.env.SMTP_URL) return null;
-  return nodemailer.createTransport(process.env.SMTP_URL);
+  return nodemailer.createTransport({
+    url: process.env.SMTP_URL,
+    connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+    greetingTimeout: SMTP_GREETING_TIMEOUT_MS,
+    socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
+  });
 })();
 
 const smsClient = (() => {
@@ -285,10 +335,70 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
-const sendEmail = async ({ to, subject, text }) => {
-  if (!mailer || !process.env.EMAIL_FROM) return false;
-  await mailer.sendMail({ from: process.env.EMAIL_FROM, to, subject, text });
-  return true;
+const sendEmail = async ({
+  to,
+  subject,
+  text,
+  correlationId = null,
+  emailType = "transactional",
+  timeoutMs = SMTP_SEND_TIMEOUT_MS,
+}) => {
+  const logContext = {
+    correlation_id: correlationId || crypto.randomUUID(),
+    email_type: emailType,
+    timeout_ms: timeoutMs,
+    to: maskEmailAddress(to),
+  };
+
+  if (!mailer || !process.env.EMAIL_FROM) {
+    const err = new Error("SMTP transport not configured");
+    err.code = "smtp_not_configured";
+    logStructured("warn", "email.failure", {
+      ...logContext,
+      duration_ms: 0,
+      error: serializeError(err),
+    });
+    return false;
+  }
+
+  const startedAt = Date.now();
+  let timer = null;
+  logStructured("info", "email.attempt", logContext);
+
+  try {
+    const info = await Promise.race([
+      mailer.sendMail({ from: process.env.EMAIL_FROM, to, subject, text }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const err = new Error(`SMTP send timed out after ${timeoutMs}ms`);
+          err.code = "smtp_send_timeout";
+          reject(err);
+        }, timeoutMs);
+      }),
+    ]);
+    logStructured("info", "email.success", {
+      ...logContext,
+      duration_ms: Date.now() - startedAt,
+      message_id: info?.messageId || null,
+      accepted_count: Array.isArray(info?.accepted) ? info.accepted.length : 0,
+    });
+    return true;
+  } catch (err) {
+    logStructured("error", "email.failure", {
+      ...logContext,
+      duration_ms: Date.now() - startedAt,
+      error: serializeError(err),
+    });
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
+const sendEmailInBackground = (options) => {
+  setImmediate(() => {
+    void sendEmail(options).catch(() => {});
+  });
 };
 
 const sendSms = async ({ to, body }) => {
@@ -419,7 +529,13 @@ app.post("/api/auth/magic/request", authRateLimiter, async (req, res) => {
   const expires = new Date(Date.now() + 15 * 60 * 1000);
   await query("INSERT INTO magic_links (user_id, token, expires_at) VALUES ($1,$2,$3)", [user.id, token, expires]);
   const url = `${APP_URL}/api/auth/magic/verify?token=${token}&redirect=${encodeURIComponent(redirect_url || APP_URL)}`;
-  await sendEmail({ to: normalizedEmail, subject: "Your Shiftway login link", text: `Click to sign in: ${url}` });
+  sendEmailInBackground({
+    to: normalizedEmail,
+    subject: "Your Shiftway login link",
+    text: `Click to sign in: ${url}`,
+    correlationId: req.requestId,
+    emailType: "magic_link",
+  });
   res.json({ ok: true });
 });
 
