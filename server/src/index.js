@@ -322,6 +322,8 @@ const mailer = (() => {
   });
 })();
 
+let lastEmailDeliveryDebug = null;
+
 const smsClient = (() => {
   if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) return null;
   return twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -353,6 +355,19 @@ const sendEmail = async ({
   if (!mailer || !process.env.EMAIL_FROM) {
     const err = new Error("SMTP transport not configured");
     err.code = "smtp_not_configured";
+    lastEmailDeliveryDebug = {
+      at: new Date().toISOString(),
+      request_id: logContext.correlation_id,
+      type: emailType,
+      to: maskEmailAddress(to),
+      accepted: [],
+      rejected: [],
+      response: null,
+      message_id: null,
+      duration_ms: 0,
+      ok: false,
+      error: serializeError(err),
+    };
     logStructured("warn", "email.failure", {
       ...logContext,
       duration_ms: 0,
@@ -376,18 +391,49 @@ const sendEmail = async ({
         }, timeoutMs);
       }),
     ]);
+    const successDebug = {
+      at: new Date().toISOString(),
+      request_id: logContext.correlation_id,
+      type: emailType,
+      to: maskEmailAddress(to),
+      accepted: Array.isArray(info?.accepted) ? info.accepted : [],
+      rejected: Array.isArray(info?.rejected) ? info.rejected : [],
+      response: info?.response || null,
+      message_id: info?.messageId || null,
+      duration_ms: Date.now() - startedAt,
+      ok: true,
+      error: null,
+    };
+    lastEmailDeliveryDebug = successDebug;
     logStructured("info", "email.success", {
       ...logContext,
-      duration_ms: Date.now() - startedAt,
-      message_id: info?.messageId || null,
-      accepted_count: Array.isArray(info?.accepted) ? info.accepted.length : 0,
+      duration_ms: successDebug.duration_ms,
+      message_id: successDebug.message_id,
+      accepted_count: successDebug.accepted.length,
+      rejected_count: successDebug.rejected.length,
+      response: successDebug.response,
     });
     return true;
   } catch (err) {
+    const failureDebug = {
+      at: new Date().toISOString(),
+      request_id: logContext.correlation_id,
+      type: emailType,
+      to: maskEmailAddress(to),
+      accepted: [],
+      rejected: [],
+      response: err?.response || null,
+      message_id: null,
+      duration_ms: Date.now() - startedAt,
+      ok: false,
+      error: serializeError(err),
+    };
+    lastEmailDeliveryDebug = failureDebug;
     logStructured("error", "email.failure", {
       ...logContext,
-      duration_ms: Date.now() - startedAt,
-      error: serializeError(err),
+      duration_ms: failureDebug.duration_ms,
+      response: failureDebug.response,
+      error: failureDebug.error,
     });
     throw err;
   } finally {
@@ -537,6 +583,10 @@ app.post("/api/auth/magic/request", authRateLimiter, async (req, res) => {
     emailType: "magic_link",
   });
   res.json({ ok: true });
+});
+
+app.get("/api/debug/email-last", auth, requireRole("owner", "manager"), async (req, res) => {
+  res.json({ ok: true, email: lastEmailDeliveryDebug });
 });
 
 app.get("/api/auth/magic/verify", async (req, res) => {
