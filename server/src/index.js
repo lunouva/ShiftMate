@@ -95,6 +95,47 @@ for (const method of ["get", "post", "put", "patch", "delete"]) {
 
 const normalizeEmailInput = (value) => String(value || "").trim().toLowerCase();
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const parsePositiveIntEnv = (name, fallback) => {
+  const value = Number.parseInt(String(process.env[name] || "").trim(), 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+const serializeError = (err) => {
+  if (!err) return null;
+  return {
+    name: err.name || "Error",
+    message: err.message || String(err),
+    code: err.code || null,
+    response_code: err.responseCode || null,
+    command: err.command || null,
+  };
+};
+const maskEmailAddress = (value) => {
+  const normalized = normalizeEmailInput(value);
+  if (!normalized.includes("@")) return normalized ? "***" : "";
+  const [localPart, domainPart] = normalized.split("@");
+  const safeLocal = localPart.length <= 2
+    ? `${localPart.slice(0, 1)}***`
+    : `${localPart.slice(0, 2)}***`;
+  return `${safeLocal}@${domainPart}`;
+};
+const logStructured = (level, event, fields = {}) => {
+  const entry = {
+    ts: new Date().toISOString(),
+    level,
+    event,
+    ...fields,
+  };
+  const line = JSON.stringify(entry);
+  if (level === "error") {
+    console.error(line);
+    return;
+  }
+  if (level === "warn") {
+    console.warn(line);
+    return;
+  }
+  console.log(line);
+};
 const rateLimitHandler = (req, res) => res.status(429).json({ error: "too_many_requests" });
 const buildRateLimiter = (windowMs, max) => rateLimit({
   windowMs,
@@ -111,6 +152,10 @@ const publicSignupRateLimiter = buildRateLimiter(15 * 60 * 1000, 15);
 const publicSlugCheckRateLimiter = buildRateLimiter(60 * 1000, 60);
 const billingRateLimiter = buildRateLimiter(15 * 60 * 1000, 60);
 const magicVerifyRateLimiter = buildRateLimiter(15 * 60 * 1000, 30);
+const SMTP_CONNECTION_TIMEOUT_MS = parsePositiveIntEnv("SMTP_CONNECTION_TIMEOUT_MS", 5000);
+const SMTP_GREETING_TIMEOUT_MS = parsePositiveIntEnv("SMTP_GREETING_TIMEOUT_MS", 5000);
+const SMTP_SOCKET_TIMEOUT_MS = parsePositiveIntEnv("SMTP_SOCKET_TIMEOUT_MS", 15000);
+const SMTP_SEND_TIMEOUT_MS = parsePositiveIntEnv("SMTP_SEND_TIMEOUT_MS", 8000);
 
 // Check whether an origin matches the configured SAAS_DOMAIN wildcard (*.shiftway.app)
 const isSubdomainOrigin = (origin) => {
@@ -251,13 +296,42 @@ passport.deserializeUser((user, done) => done(null, user));
 
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(new GoogleStrategy({
+    passReqToCallback: true,
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     callbackURL: process.env.GOOGLE_CALLBACK_URL || `${APP_URL}/api/auth/google/callback`,
-  }, async (accessToken, refreshToken, profile, done) => {
+  }, async (req, accessToken, refreshToken, profile, done) => {
     try {
       const email = normalizeEmailInput(profile.emails?.[0]?.value);
       if (!email) return done(new Error("No email from Google"));
+      const pendingInviteToken = String(req.session?.google_oauth?.invite_token || "").trim();
+
+      if (pendingInviteToken) {
+        const client = pool ? await pool.connect() : null;
+        if (!client) throw new Error("Missing DATABASE_URL");
+        try {
+          await client.query("BEGIN");
+          const inviteRes = await client.query("SELECT * FROM invites WHERE token = $1 FOR UPDATE", [pendingInviteToken]);
+          const invite = inviteRes.rows[0];
+          if (!invite || invite.accepted_at || new Date(invite.expires_at) < new Date()) {
+            throw createFlowError("invalid_invite");
+          }
+
+          const { user } = await acceptInviteWithIdentity(client, invite, {
+            email,
+            fullName: String(profile.displayName || invite.full_name || "").trim(),
+            passwordHash: null,
+          });
+          await client.query("COMMIT");
+          client.release();
+          return done(null, user);
+        } catch (err) {
+          await client.query("ROLLBACK").catch(() => {});
+          client.release();
+          return done(err);
+        }
+      }
+
       const existing = await query("SELECT * FROM users WHERE email = $1", [email]);
       if (existing.rows[0]) return done(null, existing.rows[0]);
       const googleOrgSlug = `workspace-${crypto.randomBytes(4).toString("hex")}`;
@@ -607,8 +681,15 @@ const ensureOrgState = async (orgId, locationId, ownerUser) => {
 
 const mailer = (() => {
   if (!process.env.SMTP_URL) return null;
-  return nodemailer.createTransport(process.env.SMTP_URL);
+  return nodemailer.createTransport({
+    url: process.env.SMTP_URL,
+    connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+    greetingTimeout: SMTP_GREETING_TIMEOUT_MS,
+    socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
+  });
 })();
+
+let lastEmailDeliveryDebug = null;
 
 const smsClient = (() => {
   if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) return null;
@@ -623,15 +704,124 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
-const sendEmail = async ({ to, subject, text }) => {
-  if (!mailer || !process.env.EMAIL_FROM) return false;
-  await mailer.sendMail({ from: process.env.EMAIL_FROM, to, subject, text });
-  return true;
+const sendEmail = async ({
+  to,
+  subject,
+  text,
+  correlationId = null,
+  emailType = "transactional",
+  timeoutMs = SMTP_SEND_TIMEOUT_MS,
+}) => {
+  const logContext = {
+    correlation_id: correlationId || crypto.randomUUID(),
+    email_type: emailType,
+    timeout_ms: timeoutMs,
+    to: maskEmailAddress(to),
+  };
+
+  if (!mailer || !process.env.EMAIL_FROM) {
+    const err = new Error("SMTP transport not configured");
+    err.code = "smtp_not_configured";
+    const failureDebug = {
+      at: new Date().toISOString(),
+      request_id: logContext.correlation_id,
+      type: emailType,
+      to: maskEmailAddress(to),
+      accepted: [],
+      rejected: [],
+      response: null,
+      message_id: null,
+      duration_ms: 0,
+      ok: false,
+      error: serializeError(err),
+    };
+    lastEmailDeliveryDebug = failureDebug;
+    logStructured("warn", "email.failure", {
+      ...logContext,
+      duration_ms: 0,
+      error: serializeError(err),
+    });
+    return false;
+  }
+
+  const startedAt = Date.now();
+  let timer = null;
+  logStructured("info", "email.attempt", logContext);
+
+  try {
+    const info = await Promise.race([
+      mailer.sendMail({ from: process.env.EMAIL_FROM, to, subject, text }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const err = new Error(`SMTP send timed out after ${timeoutMs}ms`);
+          err.code = "smtp_send_timeout";
+          reject(err);
+        }, timeoutMs);
+      }),
+    ]);
+    const successDebug = {
+      at: new Date().toISOString(),
+      request_id: logContext.correlation_id,
+      type: emailType,
+      to: maskEmailAddress(to),
+      accepted: Array.isArray(info?.accepted) ? info.accepted : [],
+      rejected: Array.isArray(info?.rejected) ? info.rejected : [],
+      response: info?.response || null,
+      message_id: info?.messageId || null,
+      duration_ms: Date.now() - startedAt,
+      ok: true,
+      error: null,
+    };
+    lastEmailDeliveryDebug = successDebug;
+    logStructured("info", "email.success", {
+      ...logContext,
+      duration_ms: successDebug.duration_ms,
+      message_id: successDebug.message_id,
+      accepted_count: successDebug.accepted.length,
+      rejected_count: successDebug.rejected.length,
+      response: successDebug.response,
+    });
+    return true;
+  } catch (err) {
+    const failureDebug = {
+      at: new Date().toISOString(),
+      request_id: logContext.correlation_id,
+      type: emailType,
+      to: maskEmailAddress(to),
+      accepted: [],
+      rejected: [],
+      response: err?.response || null,
+      message_id: null,
+      duration_ms: Date.now() - startedAt,
+      ok: false,
+      error: serializeError(err),
+    };
+    lastEmailDeliveryDebug = failureDebug;
+    logStructured("error", "email.failure", {
+      ...logContext,
+      duration_ms: failureDebug.duration_ms,
+      response: failureDebug.response,
+      error: failureDebug.error,
+    });
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
+const sendEmailInBackground = (options) => {
+  setImmediate(() => {
+    void sendEmail(options).catch(() => {});
+  });
 };
 
 const sendSms = async ({ to, body }) => {
   if (!smsClient || !process.env.TWILIO_FROM) return false;
-  await smsClient.messages.create({ to, from: process.env.TWILIO_FROM, body });
+  const sender = String(process.env.TWILIO_FROM || "").trim();
+  const senderConfig = /^MG[0-9a-f]{32}$/i.test(sender)
+    ? { messagingServiceSid: sender }
+    : { from: sender };
+  await smsClient.messages.create({ to, body, ...senderConfig });
   return true;
 };
 
@@ -658,6 +848,95 @@ const emptyOrgState = () => ({
   notification_settings: { email: true, sms: false, push: false },
   feature_flags: defaultFlags(),
 });
+
+function createFlowError(code, message = code) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+function appendErrorToRedirectUrl(target, code) {
+  const safeTarget = resolveSafeRedirectUrl(target, APP_URL);
+  const url = new URL(safeTarget);
+  url.searchParams.set("error", String(code || "google_auth_failed"));
+  return url.toString();
+}
+
+async function acceptInviteWithIdentity(client, invite, { email, fullName, passwordHash = null }) {
+  const inviteEmail = normalizeEmailInput(invite.email);
+  const normalizedEmail = normalizeEmailInput(email || invite.email || "");
+  if (inviteEmail && normalizedEmail !== inviteEmail) {
+    throw createFlowError("invite_email_mismatch");
+  }
+  if (!inviteEmail && !passwordHash) {
+    throw createFlowError("invite_requires_password");
+  }
+
+  const fallbackEmail = `invite+${invite.id}@phone.shiftway.local`;
+  const userEmail = normalizedEmail || fallbackEmail;
+  const existingUserRes = await client.query("SELECT * FROM users WHERE email = $1 FOR UPDATE", [userEmail]);
+  let user = existingUserRes.rows[0];
+
+  if (user && user.org_id !== invite.org_id) {
+    throw createFlowError("email_in_use");
+  }
+
+  if (!user) {
+    const resolvedFullName = String(fullName || invite.full_name || "").trim();
+    if (!resolvedFullName) {
+      throw createFlowError("missing_fields");
+    }
+    const userRes = await client.query(
+      "INSERT INTO users (org_id, location_id, full_name, email, password_hash, role, is_active) VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING *",
+      [invite.org_id, invite.location_id, resolvedFullName, userEmail, passwordHash, invite.role]
+    );
+    user = userRes.rows[0];
+  }
+
+  const markAcceptedRes = await client.query(
+    "UPDATE invites SET accepted_at = now() WHERE id = $1 AND accepted_at IS NULL RETURNING id",
+    [invite.id]
+  );
+  if (!markAcceptedRes.rows[0]) {
+    throw createFlowError("invalid_invite");
+  }
+
+  const stateRes = await client.query("SELECT data FROM org_state WHERE org_id = $1", [invite.org_id]);
+  const state = stateRes.rows[0]?.data || emptyOrgState();
+  const existingUsers = Array.isArray(state.users) ? [...state.users] : [];
+  const nextUserState = {
+    id: user.id,
+    location_id: user.location_id,
+    full_name: user.full_name,
+    email: invite.email || user.email || "",
+    role: user.role,
+    is_active: user.is_active,
+    phone: invite.phone || "",
+    birthday: "",
+    pronouns: "",
+    emergency_contact: { name: "", phone: "" },
+    attachments: [],
+    notes: "",
+    wage: "",
+  };
+  const existingIndex = existingUsers.findIndex((candidate) => candidate.id === user.id);
+  if (existingIndex >= 0) {
+    existingUsers[existingIndex] = {
+      ...existingUsers[existingIndex],
+      ...nextUserState,
+    };
+  } else {
+    existingUsers.push(nextUserState);
+  }
+  const nextState = { ...emptyOrgState(), ...state, users: existingUsers };
+
+  await client.query(
+    "INSERT INTO org_state (org_id, data, updated_at) VALUES ($1,$2,now()) ON CONFLICT (org_id) DO UPDATE SET data = $2, updated_at = now()",
+    [invite.org_id, nextState]
+  );
+
+  return { user, created: !existingUserRes.rows[0] };
+}
 
 const getInviteByToken = async (token, { includeOrgName = false } = {}) => {
   if (!token) return null;
@@ -906,18 +1185,21 @@ app.post("/api/billing/create-checkout-session", auth, requireRole("owner"), asy
 
 // Get billing status for the current org
 app.get("/api/billing/status", auth, async (req, res) => {
+  const orgRes = await query("SELECT slug FROM orgs WHERE id = $1", [req.user.org_id]);
+  const orgSlug = orgRes.rows[0]?.slug || null;
   const subRes = await query(
     "SELECT status, plan, trial_ends_at, current_period_end, stripe_subscription_id FROM subscriptions WHERE org_id = $1",
     [req.user.org_id]
   );
   const sub = subRes.rows[0];
-  if (!sub) return res.json({ status: null, message: "No subscription found." });
+  if (!sub) return res.json({ status: null, slug: orgSlug, message: "No subscription found." });
   res.json({
     status: sub.status,
     plan: sub.plan,
     trial_ends_at: sub.trial_ends_at,
     current_period_end: sub.current_period_end,
     has_subscription: !!sub.stripe_subscription_id,
+    slug: orgSlug,
   });
 });
 
@@ -984,8 +1266,18 @@ app.post("/api/auth/magic/request", authRateLimiter, async (req, res) => {
   await query("INSERT INTO magic_links (user_id, token, expires_at) VALUES ($1,$2,$3)", [user.id, token, expires]);
   const safeRedirect = resolveSafeRedirectUrl(redirect_url, APP_URL);
   const url = `${APP_URL}/api/auth/magic/verify?token=${token}&redirect=${encodeURIComponent(safeRedirect)}`;
-  await sendEmail({ to: normalizedEmail, subject: "Your Shiftway login link", text: `Click to sign in: ${url}` });
+  sendEmailInBackground({
+    to: normalizedEmail,
+    subject: "Your Shiftway login link",
+    text: `Click to sign in: ${url}`,
+    correlationId: req.requestId,
+    emailType: "magic_link",
+  });
   res.json({ ok: true });
+});
+
+app.get("/api/debug/email-last", auth, requireRole("owner", "manager"), async (req, res) => {
+  res.json({ ok: true, email: lastEmailDeliveryDebug });
 });
 
 app.get("/api/auth/magic/verify", magicVerifyRateLimiter, async (req, res) => {
@@ -1021,9 +1313,15 @@ app.get("/api/auth/google", (req, res, next) => {
   if (!passport._strategy("google")) return res.status(400).send("Google OAuth not configured");
   const nonce = crypto.randomBytes(24).toString("hex");
   const redirectUrl = resolveSafeRedirectUrl(req.query.redirect, APP_URL);
+  const inviteToken = String(req.query.invite_token || "").trim();
+  const inviteErrorRedirectUrl = inviteToken
+    ? resolveSafeRedirectUrl(req.query.invite_redirect_url, `${APP_URL}/invite/accept${inviteToken ? `?token=${encodeURIComponent(inviteToken)}` : ""}`)
+    : null;
   req.session.google_oauth = {
     nonce,
     redirect_url: redirectUrl,
+    invite_token: inviteToken || null,
+    invite_error_redirect_url: inviteErrorRedirectUrl,
     created_at: Date.now(),
   };
   passport.authenticate("google", { scope: ["profile", "email"], state: nonce })(req, res, next);
@@ -1040,17 +1338,24 @@ app.get("/api/auth/google/callback", (req, res, next) => {
     && Number.isFinite(pending.created_at)
     && (Date.now() - pending.created_at) <= (10 * 60 * 1000);
   const safeRedirect = resolveSafeRedirectUrl(pending?.redirect_url, APP_URL);
-  if (req.session) delete req.session.google_oauth;
+  const inviteErrorRedirect = resolveSafeRedirectUrl(pending?.invite_error_redirect_url, safeRedirect);
   if (!isStateValid) {
-    return res.status(400).send("Invalid OAuth state");
+    if (req.session) delete req.session.google_oauth;
+    return res.redirect(appendErrorToRedirectUrl(inviteErrorRedirect, "oauth_state_invalid"));
   }
-  passport.authenticate("google", { failureRedirect: APP_URL })(req, res, () => {
-    const user = req.user;
+  passport.authenticate("google", (err, user) => {
+    if (req.session) delete req.session.google_oauth;
+    if (err) {
+      return res.redirect(appendErrorToRedirectUrl(inviteErrorRedirect, err.code || "google_auth_failed"));
+    }
+    if (!user) {
+      return res.redirect(appendErrorToRedirectUrl(inviteErrorRedirect, "google_auth_failed"));
+    }
     const token = signToken(user);
     const redirectWithToken = new URL(safeRedirect);
     redirectWithToken.hash = `token=${encodeURIComponent(token)}`;
     res.redirect(redirectWithToken.toString());
-  });
+  })(req, res, next);
 });
 
 app.get("/api/me", auth, async (req, res) => {
@@ -1314,6 +1619,7 @@ app.get("/api/invite/verify", async (req, res) => {
     email: invite.email,
     role: invite.role,
     org_name: invite.org_name,
+    google_invite_supported: !!invite.email && !!passport._strategy("google"),
   });
 });
 
@@ -1347,54 +1653,10 @@ app.post("/api/invite/accept", async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(rawPassword, 10);
-    const fallbackEmail = `invite+${invite.id}@phone.shiftway.local`;
-    const userEmail = String(invite.email || fallbackEmail).toLowerCase();
-
-    const existingUserRes = await client.query("SELECT id FROM users WHERE email = $1", [userEmail]);
-    if (existingUserRes.rows[0]) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({ error: "email_in_use" });
-    }
-
-    const userRes = await client.query(
-      "INSERT INTO users (org_id, location_id, full_name, email, password_hash, role, is_active) VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING *",
-      [invite.org_id, invite.location_id, trimmedName, userEmail, passwordHash, invite.role]
-    );
-    const user = userRes.rows[0];
-
-    const markAcceptedRes = await client.query(
-      "UPDATE invites SET accepted_at = now() WHERE id = $1 AND accepted_at IS NULL RETURNING id",
-      [invite.id]
-    );
-    if (!markAcceptedRes.rows[0]) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({ error: "invalid_invite" });
-    }
-
-    const stateRes = await client.query("SELECT data FROM org_state WHERE org_id = $1", [invite.org_id]);
-    const state = stateRes.rows[0]?.data || emptyOrgState();
-    const nextUsers = Array.isArray(state.users) ? [...state.users] : [];
-    nextUsers.push({
-      id: user.id,
-      location_id: user.location_id,
-      full_name: user.full_name,
-      email: invite.email || "",
-      role: user.role,
-      is_active: user.is_active,
-      phone: invite.phone || "",
-      birthday: "",
-      pronouns: "",
-      emergency_contact: { name: "", phone: "" },
-      attachments: [],
-      notes: "",
-      wage: "",
+    const { user } = await acceptInviteWithIdentity(client, invite, {
+      fullName: trimmedName,
+      passwordHash,
     });
-    const nextState = { ...emptyOrgState(), ...state, users: nextUsers };
-
-    await client.query(
-      "INSERT INTO org_state (org_id, data, updated_at) VALUES ($1,$2,now()) ON CONFLICT (org_id) DO UPDATE SET data = $2, updated_at = now()",
-      [invite.org_id, nextState]
-    );
 
     await client.query("COMMIT");
 
