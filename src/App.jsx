@@ -1,4 +1,8 @@
 import React, { useEffect, useMemo, useState, createContext, useContext } from "react";
+import shiftwayLogo from "./assets/logos/logo-wordmark.png";
+import shiftwayLogoMono from "./assets/logos/logo-wordmark-mono.png";
+import shiftwayLogoFull from "./assets/logos/logo-full.png";
+import shiftwayLogoTransparent from "./assets/logos/logo-wordmark-transparent.png";
 import { createPortal } from "react-dom";
 import BillingGate from "./components/BillingGate.jsx";
 import {
@@ -1737,13 +1741,7 @@ function InnerApp(props) {
         <div className="mb-6 px-4">
           <div className="rounded-[1.75rem] border border-white/10 bg-white/10 p-3 shadow-lg shadow-black/10">
             <div className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-brand via-brand-dark to-brand-darker text-xl font-black text-white shadow-lg shadow-brand-darker/40 ring-1 ring-white/20">
-                ✦
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-brand-lightest/80">Shiftway</div>
-                <div className="text-lg font-black text-white">Staffing Hub</div>
-              </div>
+              <img src={shiftwayLogoMono} alt="ShiftWay" className="h-8 w-auto invert" />
             </div>
             <div className="mt-3 rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white/80">
               {isManager ? "Warm scheduling for your whole team" : "Your week, messages, and requests"}
@@ -1778,7 +1776,7 @@ function InnerApp(props) {
         <div className="flex items-center gap-3">
           <button className="rounded-xl bg-white p-2 text-brand-dark shadow-sm" onClick={() => setMobileMenuOpen((v) => !v)}>☰</button>
           <div>
-            <div className="font-black text-brand-text">Shiftway</div>
+            <img src={shiftwayLogo} alt="ShiftWay" className="h-7 w-auto" />
             <div className="text-xs text-brand-dark">{navItems.find((item) => item.id === tab)?.label || "Schedule"}</div>
           </div>
         </div>
@@ -1798,7 +1796,7 @@ function InnerApp(props) {
           <div className="h-full w-[280px] rounded-r-[2rem] bg-brand-darker p-4 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <div className="text-xl font-black">Shiftway</div>
+                <img src={shiftwayLogoMono} alt="ShiftWay" className="mb-1 h-7 w-auto invert" />
                 <div className="text-xs text-white/70">{currentStateUser.full_name}</div>
               </div>
               <button className="rounded-xl p-2 hover:bg-white/10" onClick={() => setMobileMenuOpen(false)}>✕</button>
@@ -3030,7 +3028,7 @@ function InviteAcceptPage({ clientSettings }) {
   return (
     <div className="mx-auto grid min-h-[70vh] max-w-md place-items-center p-6">
       <div className="w-full rounded-2xl border p-6 shadow-sm">
-        <h1 className="mb-1 text-2xl font-black">Shiftway</h1>
+        <img src={shiftwayLogoFull} alt="ShiftWay" className="mb-4 h-14 w-auto" />
         <div className="mb-4 text-brand-dark">Accept your invite</div>
         {err && <div className="mb-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">{err}</div>}
         {loading && <div className="rounded-xl border p-3 text-sm">Verifying your invite…</div>}
@@ -3101,12 +3099,18 @@ function LoginPage({ onAfterLogin, backendMode }) {
   };
 
   return (
-    <div className="mx-auto grid min-h-[70vh] max-w-md place-items-center p-6">
-      <div className="w-full rounded-2xl border p-6 shadow-sm">
-        <h1 className="mb-1 text-2xl font-black">Shiftway</h1>
-        <div className="mb-4 text-brand-dark">{mode === "register" ? "Create your company" : mode === "magic" ? "Magic link" : "Sign in"}</div>
-        {err && <div className="mb-3 rounded-lg bg-red-50 p-2 text-sm text-red-700">{err}</div>}
-        {msg && <div className="mb-3 rounded-lg bg-green-50 p-2 text-sm text-green-700">{msg}</div>}
+    <div className="flex min-h-screen items-center justify-center bg-brand-lightest p-6">
+      <div className="w-full max-w-md rounded-2xl border border-brand-light bg-white p-8 shadow-xl">
+        {/* Logo + tagline — centered, blend-mode removes white bg natively */}
+        <div className="mb-4 flex justify-center">
+          <img src={shiftwayLogoFull} alt="ShiftWay" className="h-auto w-[300px] [mix-blend-mode:multiply]" />
+        </div>
+        {/* Heading — strong hierarchy */}
+        <h1 className="mb-6 text-center text-xl font-bold text-brand-text">
+          {mode === "register" ? "Create your company" : mode === "magic" ? "Sign in with a magic link" : "Sign in to your account"}
+        </h1>
+        {err && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>}
+        {msg && <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-700">{msg}</div>}
         <div className="grid gap-3">
           {mode === "register" && (
             <>
@@ -3117,22 +3121,22 @@ function LoginPage({ onAfterLogin, backendMode }) {
           <TextInput label="Email" value={email} onChange={setEmail} type="email" />
           {mode !== "magic" && <TextInput label="Password" value={password} onChange={setPassword} type="password" />}
           {mode === "login" && (
-            <button className="mt-1 rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-darker" onClick={handleLogin}>Sign in</button>
+            <button className="mt-1 rounded-xl border border-brand-dark bg-brand-dark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-darker" onClick={handleLogin}>Sign in</button>
           )}
           {mode === "register" && (
-            <button className="mt-1 rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-darker" onClick={handleRegister}>Create account</button>
+            <button className="mt-1 rounded-xl border border-brand-dark bg-brand-dark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-darker" onClick={handleRegister}>Create account</button>
           )}
           {mode === "magic" && (
-            <button className="mt-1 rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-darker" onClick={handleMagic}>Send magic link</button>
+            <button className="mt-1 rounded-xl border border-brand-dark bg-brand-dark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-darker" onClick={handleMagic}>Send magic link</button>
           )}
           {isLive && (
-            <button className="rounded-xl border border-brand-light bg-brand-lightest px-3 py-2 text-sm text-brand-dark transition hover:bg-brand-light" onClick={loginWithGoogle}>Continue with Google</button>
+            <button className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50" onClick={loginWithGoogle}>Continue with Google</button>
           )}
         </div>
-        <div className="mt-4 flex flex-wrap gap-2 text-xs text-gray-600">
-          {mode !== "login" && <button className="text-brand-dark underline" onClick={()=>setMode("login")}>Back to login</button>}
-          {mode !== "register" && <button className="text-brand-dark underline" onClick={()=>setMode("register")}>Create company</button>}
-          {mode !== "magic" && <button className="text-brand-dark underline" onClick={()=>setMode("magic")}>Use magic link</button>}
+        <div className="mt-5 flex flex-wrap justify-center gap-4 text-sm">
+          {mode !== "login" && <button className="font-medium text-brand-dark hover:underline" onClick={()=>setMode("login")}>Back to login</button>}
+          {mode !== "register" && <button className="font-medium text-brand-dark hover:underline" onClick={()=>setMode("register")}>Create company</button>}
+          {mode !== "magic" && <button className="font-medium text-brand-dark hover:underline" onClick={()=>setMode("magic")}>Use magic link</button>}
         </div>
         {!isLive && (
           <div className="mt-4 text-xs text-gray-600">
