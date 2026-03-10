@@ -3126,9 +3126,9 @@ function LoginPage({ onAfterLogin, backendMode }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-brand-lightest p-6">
       <div className="w-full max-w-md rounded-2xl border border-brand-light bg-white p-8 shadow-xl">
-        {/* Logo — centered, transparent, properly sized */}
+        {/* Logo — centered, blend-mode removes white bg natively */}
         <div className="mb-6 flex justify-center">
-          <img src={shiftwayLogoTransparent} alt="ShiftWay" className="h-auto w-[155px]" />
+          <img src={shiftwayLogo} alt="ShiftWay" className="h-auto w-[155px] [mix-blend-mode:multiply]" />
         </div>
         {/* Heading — strong hierarchy */}
         <h1 className="mb-6 text-center text-xl font-bold text-brand-text">
