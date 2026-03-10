@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import shiftwayLogo from '../assets/logos/logo-wordmark.png';
+import shiftwayLogo from '../assets/logos/logo-wordmark.webp';
 
 export default function HomePage() {
   return (
@@ -8,7 +8,7 @@ export default function HomePage() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-brand-light bg-white">
         <div className="flex items-center">
-          <img src={shiftwayLogo} alt="Shiftway" className="h-8 w-auto" />
+          <img src={shiftwayLogo} alt="Shiftway" className="h-24 w-auto" />
         </div>
         <div className="flex items-center gap-3">
           <Link to="/pricing" className="text-sm font-medium text-brand-dark hover:text-brand-darker transition">Pricing</Link>
