@@ -3127,9 +3127,9 @@ function LoginPage({ onAfterLogin, backendMode }) {
     <div className="flex min-h-screen items-center justify-center bg-brand-lightest p-6">
       <div className="w-full max-w-md rounded-2xl border border-brand-light bg-white p-8 shadow-xl">
         {/* Logo + tagline — centered, blend-mode removes white bg natively */}
-        <div className="mb-6 flex flex-col items-center gap-1.5">
-          <img src={shiftwayLogo} alt="ShiftWay" className="h-auto w-[155px] [mix-blend-mode:multiply]" />
-          <p className="text-xs font-medium tracking-wide text-brand-dark/70">Scheduling &amp; Workforce Management</p>
+        <div className="mb-8 flex flex-col items-center gap-3">
+          <img src={shiftwayLogo} alt="ShiftWay" className="h-auto w-[220px] [mix-blend-mode:multiply]" />
+          <p className="text-base font-bold tracking-wide text-brand-dark">Scheduling &amp; Workforce Management</p>
         </div>
         {/* Heading — strong hierarchy */}
         <h1 className="mb-6 text-center text-xl font-bold text-brand-text">
