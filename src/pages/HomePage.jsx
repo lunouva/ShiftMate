@@ -1,16 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import shiftwayLogo from '../assets/logos/logo-wordmark.png';
 
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-brand-lightest">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-brand-light bg-white">
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand via-brand-dark to-brand-darker text-base font-black text-white shadow">
-            ✦
-          </div>
-          <span className="text-xl font-black text-brand-text">Shiftway</span>
+        <div className="flex items-center">
+          <img src={shiftwayLogo} alt="Shiftway" className="h-8 w-auto" />
         </div>
         <div className="flex items-center gap-3">
           <Link to="/pricing" className="text-sm font-medium text-brand-dark hover:text-brand-darker transition">Pricing</Link>
