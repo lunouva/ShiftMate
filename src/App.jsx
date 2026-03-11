@@ -49,6 +49,7 @@ const POSITION_COLOR_PALETTE = [
   { key: "emerald", border: "border-l-emerald-400", bg: "bg-emerald-50", dot: "bg-emerald-400" },
 ];
 const TOAST_DURATION_MS = 4000;
+const TOAST_EVENT = "shiftway:toast";
 
 // ---------- date utils (safe) ----------
 const safeDate = (v) => {
@@ -97,6 +98,15 @@ const fmtDateLabel = (d) => safeDate(d).toLocaleDateString([], { weekday: "short
 // ---------- utilities ----------
 const uid = () => Math.random().toString(36).slice(2, 10);
 const today = () => new Date();
+const notify = (message) => {
+  const text = String(message || "").trim();
+  if (!text) return;
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+    window.dispatchEvent(new CustomEvent(TOAST_EVENT, { detail: { message: text } }));
+    return;
+  }
+  console.log(text);
+};
 
 const combineDayAndTime = (dayDate, hhmm) => {
   const day = safeDate(dayDate);
@@ -441,6 +451,42 @@ function ToastViewport({ toast }) {
       </div>
     </div>,
     document.body
+  );
+}
+
+function ConfirmDialog({ dialog, onConfirm, onCancel }) {
+  const toneStyles = dialog?.tone === "danger"
+    ? "border-red-200 bg-red-50 text-red-800"
+    : "border-amber-200 bg-amber-50 text-amber-800";
+
+  return (
+    <Modal
+      open={!!dialog}
+      onClose={onCancel}
+      title={dialog?.title || "Confirm action"}
+      footer={(
+        <>
+          <button
+            type="button"
+            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+            onClick={onCancel}
+          >
+            {dialog?.cancelLabel || "Cancel"}
+          </button>
+          <button
+            type="button"
+            className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${dialog?.tone === "danger" ? "border-red-700 bg-red-700 text-white hover:bg-red-800" : "border-brand-dark bg-brand-dark text-white hover:bg-brand-darker"}`}
+            onClick={onConfirm}
+          >
+            {dialog?.confirmLabel || "Confirm"}
+          </button>
+        </>
+      )}
+    >
+      <div className={`rounded-xl border px-3 py-2 text-sm whitespace-pre-line ${toneStyles}`}>
+        {dialog?.message || "Are you sure you want to continue?"}
+      </div>
+    </Modal>
   );
 }
 
@@ -907,6 +953,7 @@ export default function App({ workspaceSlug } = {}) {
   const [swapModal, setSwapModal] = useState({ open: false, shift: null, requestUserId: null });
   const [inviteModal, setInviteModal] = useState(false);
   const [toast, setToast] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   const location = data.locations.find((l) => l.id === locationId) || data.locations[0];
   const users = data.users.filter((u) => u.location_id === location.id && u.is_active);
@@ -1039,6 +1086,38 @@ export default function App({ workspaceSlug } = {}) {
 
   const showToast = (message) => setToast({ id: uid(), message });
 
+  const requestConfirm = (options = {}) => (
+    new Promise((resolve) => {
+      setConfirmDialog((current) => {
+        if (current?.resolve) current.resolve(false);
+        return {
+          title: String(options.title || "Confirm action"),
+          message: String(options.message || "Are you sure you want to continue?"),
+          confirmLabel: String(options.confirmLabel || "Confirm"),
+          cancelLabel: String(options.cancelLabel || "Cancel"),
+          tone: options.tone === "danger" ? "danger" : "warn",
+          resolve,
+        };
+      });
+    })
+  );
+
+  const settleConfirm = (accepted) => {
+    setConfirmDialog((current) => {
+      if (current?.resolve) current.resolve(Boolean(accepted));
+      return null;
+    });
+  };
+
+  useEffect(() => {
+    const onToastEvent = (event) => {
+      const message = event?.detail?.message;
+      if (message) showToast(message);
+    };
+    window.addEventListener(TOAST_EVENT, onToastEvent);
+    return () => window.removeEventListener(TOAST_EVENT, onToastEvent);
+  }, []);
+
   const ensureSchedule = () => {
     if (schedule) return schedule;
     const newSched = { id: uid(), location_id: location.id, week_start: weekStart, status: "draft", shifts: [] };
@@ -1083,7 +1162,7 @@ export default function App({ workspaceSlug } = {}) {
 
   const addUnavailability = (ua) => {
     const startM = minutes(ua.start_hhmm), endM = minutes(ua.end_hhmm);
-    if (!(endM > startM)) { alert('End time must be after start time.'); return; }
+    if (!(endM > startM)) { notify('End time must be after start time.'); return; }
     setData((d) => ({ ...d, unavailability: [{ id: uid(), ...ua }, ...d.unavailability] }));
     showToast("Unavailability saved ✅");
   };
@@ -1095,19 +1174,29 @@ export default function App({ workspaceSlug } = {}) {
 
   const currentUserId = authUser?.id || null;
 
-  const createShift = ({ user_id, position_id, day, start_hhmm, end_hhmm, break_min, notes, quickTaskTitle, quickTaskTemplateId, is_open }) => {
-    // Unavailability override with confirm
+  const createShift = async ({ user_id, position_id, day, start_hhmm, end_hhmm, break_min, notes, quickTaskTitle, quickTaskTemplateId, is_open }) => {
+    // Unavailability override with in-app confirm dialog
     const conflicts = user_id ? hasUnavailabilityConflict(user_id, day, start_hhmm, end_hhmm) : [];
     if (conflicts.length) {
       const lines = conflicts.slice(0, 3).map((c) => `${c.kind === 'weekly' ? 'Weekly' : c.date}: ${c.start_hhmm}-${c.end_hhmm}${c.notes ? ' • ' + c.notes : ''}`).join('\n');
-      const ok = confirm(`This shift overlaps with unavailability:\n${lines}\n\nSchedule anyway?`);
+      const ok = await requestConfirm({
+        title: "Schedule despite unavailability?",
+        message: `This shift overlaps with unavailability:\n${lines}\n\nSchedule anyway?`,
+        confirmLabel: "Schedule shift",
+        cancelLabel: "Cancel",
+      });
       if (!ok) return;
     }
-    // Time-off warning with confirm
+    // Time-off warning with in-app confirm dialog
     const timeOffMatches = user_id ? hasTimeOffConflict(user_id, day) : [];
     if (timeOffMatches.length) {
       const lines = timeOffMatches.slice(0, 3).map((r)=> `${r.date_from}→${r.date_to} (${r.status})${r.notes ? ' • ' + r.notes : ''}`).join('\n');
-      const ok = confirm(`This shift falls during time off:\n${lines}\n\nSchedule anyway?`);
+      const ok = await requestConfirm({
+        title: "Schedule during time off?",
+        message: `This shift falls during time off:\n${lines}\n\nSchedule anyway?`,
+        confirmLabel: "Schedule shift",
+        cancelLabel: "Cancel",
+      });
       if (!ok) return;
     }
 
@@ -1138,10 +1227,10 @@ export default function App({ workspaceSlug } = {}) {
     }));
   };
   const publish = () => { if (!schedule) return; upsertSchedule((s) => ({ ...s, status: s.status === "draft" ? "published" : "draft" })); };
-  const copyLastWeek = () => {
+  const copyLastWeek = async () => {
     const prevWeekStart = fmtDate(addDays(weekStart, -7));
     const prevSchedule = data.schedules.find((s) => s.location_id === location.id && s.week_start === prevWeekStart);
-    if (!prevSchedule) return alert("No schedule found for last week.");
+    if (!prevSchedule) return notify("No schedule found for last week.");
     const copyMode = clientSettings.scheduleSettings?.copyWeekDefault || "replace";
     const copiedShifts = (prevSchedule.shifts || []).map((shift) => ({
       ...shift,
@@ -1150,7 +1239,15 @@ export default function App({ workspaceSlug } = {}) {
       ends_at: addDays(shift.ends_at, 7).toISOString(),
     }));
     const existingShifts = schedule?.shifts || [];
-    if (copyMode === "confirm" && existingShifts.length && !confirm("Replace this week's current shifts with a draft copy of last week?")) return;
+    if (copyMode === "confirm" && existingShifts.length) {
+      const ok = await requestConfirm({
+        title: "Replace current shifts?",
+        message: "Replace this week's current shifts with a draft copy of last week?",
+        confirmLabel: "Replace shifts",
+        cancelLabel: "Keep current shifts",
+      });
+      if (!ok) return;
+    }
     const nextShifts = copyMode === "append" ? [...existingShifts, ...copiedShifts] : copiedShifts;
     const nextSchedule = { id: schedule?.id || uid(), location_id: location.id, week_start: weekStart, status: "draft", shifts: nextShifts };
     setData((d) => {
@@ -1241,12 +1338,19 @@ export default function App({ workspaceSlug } = {}) {
       rows.push([u?.full_name || "", fmtDate(sh.starts_at), fmtTime(sh.starts_at), fmtTime(sh.ends_at), sh.break_min, p?.name || "", hoursBetween(sh.starts_at, sh.ends_at, sh.break_min).toFixed(2)]);
     }
     const csv = rows.map((r) => r.join(",")).join("\n");
-    try { await navigator.clipboard.writeText(csv); alert("CSV copied to clipboard"); }
-    catch (e) { alert("Copy failed. Try Download instead."); }
+    try { await navigator.clipboard.writeText(csv); notify("CSV copied to clipboard"); }
+    catch (e) { notify("Copy failed. Try Download instead."); }
   };
 
-  const resetDemo = () => {
-    if (!confirm("Reset demo data? This cannot be undone.")) return;
+  const resetDemo = async () => {
+    const ok = await requestConfirm({
+      title: "Reset demo data?",
+      message: "This action cannot be undone.",
+      confirmLabel: "Reset data",
+      cancelLabel: "Cancel",
+      tone: "danger",
+    });
+    if (!ok) return;
     const seeded = seedData();
     setData(seeded);
     setWeekStart(fmtDate(startOfWeek(today(), seeded.feature_flags.weekStartsOn)));
@@ -1416,6 +1520,49 @@ export default function App({ workspaceSlug } = {}) {
     return true;
   };
 
+  const pruneUserFromLocalState = (source, userId) => {
+    const targetUserId = String(userId || "");
+    if (!targetUserId) return source;
+    return {
+      ...source,
+      users: (source.users || []).filter((user) => user.id !== targetUserId),
+      schedules: (source.schedules || []).map((sched) => ({
+        ...sched,
+        shifts: (sched.shifts || []).map((shift) => (
+          shift.user_id === targetUserId
+            ? { ...shift, user_id: null }
+            : shift
+        )),
+      })),
+      time_off_requests: (source.time_off_requests || []).filter((request) => request.user_id !== targetUserId),
+      unavailability: (source.unavailability || []).filter((entry) => entry.user_id !== targetUserId),
+      tasks: (source.tasks || []).filter((task) => task.assigned_to !== targetUserId && task.created_by !== targetUserId),
+      messages: (source.messages || []).filter((message) => message.from_user_id !== targetUserId && message.to_user_id !== targetUserId),
+      shift_swaps: (source.shift_swaps || []).filter((swap) => swap.from_user_id !== targetUserId && swap.to_user_id !== targetUserId),
+      open_shift_claims: (source.open_shift_claims || []).filter((claim) => claim.user_id !== targetUserId),
+    };
+  };
+
+  const deleteAccount = async ({ current_password } = {}) => {
+    if (!currentUserId) throw new Error("No authenticated user.");
+    const password = String(current_password || "");
+
+    if (backendMode) {
+      const token = localStorage.getItem(TOKEN_KEY);
+      await apiFetch("/api/me", { token, method: "DELETE", body: { current_password: password } }, clientSettings);
+      localStorage.removeItem(TOKEN_KEY);
+    } else {
+      const demoUser = data.users.find((user) => user.id === currentUserId);
+      if (demoUser?.password && password !== demoUser.password) {
+        throw new Error("Current password is incorrect.");
+      }
+      localStorage.removeItem("shiftway_current_user");
+    }
+
+    setData((existing) => pruneUserFromLocalState(existing, currentUserId));
+    return true;
+  };
+
   // Newsfeed
   const addPost = (user_id, body) => {
     const post = { id: uid(), user_id, body: body.trim(), created_at: new Date().toISOString() };
@@ -1426,7 +1573,7 @@ export default function App({ workspaceSlug } = {}) {
   // Tasks
   const addTask = (title, assigned_to, due_date, created_by, options = {}) => {
     const t = { id: uid(), title: title.trim(), assigned_to, due_date, status: 'open', created_by };
-    if (!t.title || !assigned_to) return alert('Task needs a title and assignee');
+    if (!t.title || !assigned_to) return notify('Task needs a title and assignee');
     setData((d) => ({ ...d, tasks: [t, ...d.tasks] }));
     if (!options.skipToast) showToast("Task added ✅");
   };
@@ -1462,7 +1609,7 @@ export default function App({ workspaceSlug } = {}) {
         showToast("Employee added ✅");
       }
     } catch (e) {
-      alert(e.message || "Unable to add employee");
+      notify(e.message || "Unable to add employee");
     }
   };
 
@@ -1477,8 +1624,8 @@ export default function App({ workspaceSlug } = {}) {
       backendMode={backendMode}
       clientSettings={clientSettings}
       onAuthChange={setAuthUser}
-    >
-      <InnerApp
+      >
+        <InnerApp
         data={data}
         setData={setData}
         clientSettings={clientSettings}
@@ -1530,6 +1677,8 @@ export default function App({ workspaceSlug } = {}) {
         deleteUnavailability={deleteUnavailability}
         unavailability={data.unavailability || []}
         saveProfile={saveProfile}
+        deleteAccount={deleteAccount}
+        confirmAction={requestConfirm}
         addPost={addPost}
         addTask={addTask}
         setTaskStatus={setTaskStatus}
@@ -1539,6 +1688,11 @@ export default function App({ workspaceSlug } = {}) {
         sendMessage={sendMessage}
       />
       <ToastViewport toast={toast} />
+      <ConfirmDialog
+        dialog={confirmDialog}
+        onConfirm={() => settleConfirm(true)}
+        onCancel={() => settleConfirm(false)}
+      />
       {billingRequired && (
         <BillingGate
           currentUser={authUser}
@@ -1654,7 +1808,7 @@ function InnerApp(props) {
     data, setData, clientSettings, setClientSettings, backendMode, apiBase, apiError, setApiError, loading, tab, setTab, locationId, setLocationId, weekStart, setWeekStart,
     users, positions, positionsById, weekDays, schedule, ensureSchedule, createShift, deleteShift, markShiftOpen,
     publish, copyLastWeek, exportPayrollCsv, totalHoursByUser, totalHoursByDay, copyCsv, exportCsv, resetDemo, shiftModal, setShiftModal, swapModal, setSwapModal, inviteModal, setInviteModal,
-    addEmployee, addPosition, createTimeOff, setTimeOffStatus, createSwapRequest, setSwapStatus, createOpenShiftClaim, setOpenShiftClaimStatus, addUnavailability, updateUnavailability, deleteUnavailability, unavailability, saveProfile,
+    addEmployee, addPosition, createTimeOff, setTimeOffStatus, createSwapRequest, setSwapStatus, createOpenShiftClaim, setOpenShiftClaimStatus, addUnavailability, updateUnavailability, deleteUnavailability, unavailability, saveProfile, deleteAccount, confirmAction,
     addPost, addTask, setTaskStatus, deleteTask, addTemplate, deleteTemplate, sendMessage,
   } = props;
   const { currentUser, logout } = useAuth();
@@ -1664,6 +1818,7 @@ function InnerApp(props) {
 
   const flags = data.feature_flags || defaultFlags();
   const isManager = currentUser?.role !== "employee";
+  const isOwner = currentUser?.role === "owner";
   const scopedUsers = users;
   const currentStateUser = data.users.find((user) => user.id === currentUser?.id) || normalizeUser(currentUser || {});
   const positionColors = useMemo(() => Object.fromEntries(positions.map((position, index) => [position.id, POSITION_COLOR_PALETTE[index % POSITION_COLOR_PALETTE.length]])), [positions]);
@@ -1706,6 +1861,19 @@ function InnerApp(props) {
     setHeaderProfileOpen(false);
     setMobileMenuOpen(false);
   };
+  const handleDeleteAccount = async ({ current_password } = {}) => {
+    const ok = await confirmAction({
+      title: "Delete account?",
+      message: "This will permanently remove your account and clear your personal data from this workspace.",
+      confirmLabel: "Delete account",
+      cancelLabel: "Cancel",
+      tone: "danger",
+    });
+    if (!ok) return false;
+    await deleteAccount({ current_password });
+    logout();
+    return true;
+  };
   const exportAllData = () => {
     const payload = {
       exported_at: new Date().toISOString(),
@@ -1716,22 +1884,22 @@ function InnerApp(props) {
   };
   const enablePush = async () => {
     try {
-      if (!("serviceWorker" in navigator)) return alert("Push not supported in this browser.");
+      if (!("serviceWorker" in navigator)) return notify("Push not supported in this browser.");
       const reg = await navigator.serviceWorker.register("/sw.js");
       const token = localStorage.getItem(TOKEN_KEY);
-      if (!token) return alert("Log in again to enable push.");
+      if (!token) return notify("Log in again to enable push.");
       const { publicKey } = await apiFetch("/api/push/public-key", { token }, clientSettings);
-      if (!publicKey) return alert("Missing VAPID public key on server.");
+      if (!publicKey) return notify("Missing VAPID public key on server.");
       const subscription = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
       await apiFetch("/api/push/subscribe", { token, method: "POST", body: { subscription } }, clientSettings);
       setData((d) => ({ ...d, notification_settings: { ...(d.notification_settings || {}), push: true } }));
-      alert("Push notifications enabled.");
+      notify("Push notifications enabled.");
     } catch (e) {
       console.error(e);
-      alert("Unable to enable push.");
+      notify("Unable to enable push.");
     }
   };
 
@@ -1969,9 +2137,11 @@ function InnerApp(props) {
             <button disabled={!schedule} className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest disabled:cursor-not-allowed disabled:opacity-60" onClick={handlePrint}>Print</button>
             <button disabled={!schedule} className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest disabled:cursor-not-allowed disabled:opacity-60" onClick={copyCsv}>Copy CSV</button>
             <button disabled={!schedule} className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest disabled:cursor-not-allowed disabled:opacity-60" onClick={exportCsv}>Download CSV</button>
-            <button disabled={!schedule} className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest disabled:cursor-not-allowed disabled:opacity-60" onClick={exportPayrollCsv}>
-              Payroll export
-            </button>
+            {isOwner && (
+              <button disabled={!schedule} className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest disabled:cursor-not-allowed disabled:opacity-60" onClick={exportPayrollCsv}>
+                Payroll export
+              </button>
+            )}
             {DEMO_MODE && SHOW_DEMO_CONTROLS && (
               <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark shadow-sm transition hover:bg-brand-lightest" onClick={resetDemo}>Reset Demo</button>
             )}
@@ -2123,7 +2293,7 @@ function InnerApp(props) {
 
       {tab === "profile" && (
         <Section title="Profile">
-          <ProfilePanel currentUser={currentStateUser} canEditWage={isManager} onSave={saveProfile} />
+          <ProfilePanel currentUser={currentStateUser} canEditWage={isManager} onSave={saveProfile} onDeleteAccount={handleDeleteAccount} />
         </Section>
       )}
 
@@ -2757,7 +2927,7 @@ function InviteModal({ open, onClose, locations, clientSettings }) {
           <div className="font-medium">Invite sent.</div>
           <div className="mt-1 break-all text-xs">{success.invite_url}</div>
           <div className="mt-2 flex flex-wrap gap-2">
-            <button className="rounded-xl border border-brand-light bg-brand-lightest px-3 py-2 text-xs text-brand-dark transition hover:bg-brand-light" onClick={() => navigator.clipboard.writeText(success.invite_url).then(() => alert("Invite link copied to clipboard")).catch(() => alert("Copy failed. Copy the link manually."))}>Copy link</button>
+            <button className="rounded-xl border border-brand-light bg-brand-lightest px-3 py-2 text-xs text-brand-dark transition hover:bg-brand-light" onClick={() => navigator.clipboard.writeText(success.invite_url).then(() => notify("Invite link copied to clipboard")).catch(() => notify("Copy failed. Copy the link manually."))}>Copy link</button>
           </div>
         </div>
       )}
@@ -2835,7 +3005,7 @@ function AddEmployeeForm({ onAdd }) {
         </div>
       </div>
       <div className="mt-3 flex justify-end">
-        <button className="rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white shadow-sm transition hover:bg-brand-darker" onClick={() => { if (!full_name.trim()) return alert("Enter a name"); onAdd({ full_name: full_name.trim(), email: email.trim(), role, phone, birthday, pronouns, emergency_contact: { name: emName, phone: emPhone }, attachments: filesMeta, notes, wage: wage === "" ? "" : Number(wage) }); setName(""); setEmail(""); setRole("employee"); setPhone(""); setBirthday(""); setPronouns(""); setEmName(""); setEmPhone(""); setWage(""); setFilesMeta([]); setNotes(""); }}>Add</button>
+        <button className="rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white shadow-sm transition hover:bg-brand-darker" onClick={() => { if (!full_name.trim()) return notify("Enter a name"); onAdd({ full_name: full_name.trim(), email: email.trim(), role, phone, birthday, pronouns, emergency_contact: { name: emName, phone: emPhone }, attachments: filesMeta, notes, wage: wage === "" ? "" : Number(wage) }); setName(""); setEmail(""); setRole("employee"); setPhone(""); setBirthday(""); setPronouns(""); setEmName(""); setEmPhone(""); setWage(""); setFilesMeta([]); setNotes(""); }}>Add</button>
       </div>
     </div>
   );
@@ -2850,7 +3020,7 @@ function AddPositionForm({ onAdd }) {
         <TextInput label="Name" value={name} onChange={setName} placeholder="Scooper" />
       </div>
       <div className="mt-3 flex justify-end">
-        <button className="rounded-2xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white shadow-sm transition hover:bg-brand-darker" onClick={() => { if (!name.trim()) return alert("Enter a name"); onAdd(name.trim()); setName(""); }}>Add</button>
+        <button className="rounded-2xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white shadow-sm transition hover:bg-brand-darker" onClick={() => { if (!name.trim()) return notify("Enter a name"); onAdd(name.trim()); setName(""); }}>Add</button>
       </div>
     </div>
   );
@@ -2882,7 +3052,7 @@ function ShiftEditorModal({ open, onClose, users, positions, defaultUserId, defa
       footer={
         <>
           <button className="rounded-xl border border-brand-light bg-brand-lightest px-3 py-2 text-sm text-brand-dark transition hover:bg-brand-light" onClick={onClose}>Cancel</button>
-          <button className="rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white transition hover:bg-brand-darker" onClick={() => { if (!isOpenShift && !userId) return alert("Pick an employee or mark this as open."); if (!positionId) return alert("Pick a position"); onCreate({ user_id: userId, position_id: positionId, day, start_hhmm: start, end_hhmm: end, break_min: breakMin, notes, quickTaskTitle, quickTaskTemplateId: templateId, is_open: isOpenShift }); setQuickTaskTitle(""); setTemplateId(""); setIsOpenShift(false); onClose(); }}>Save shift</button>
+          <button className="rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white transition hover:bg-brand-darker" onClick={() => { if (!isOpenShift && !userId) return notify("Pick an employee or mark this as open."); if (!positionId) return notify("Pick a position"); onCreate({ user_id: userId, position_id: positionId, day, start_hhmm: start, end_hhmm: end, break_min: breakMin, notes, quickTaskTitle, quickTaskTemplateId: templateId, is_open: isOpenShift }); setQuickTaskTitle(""); setTemplateId(""); setIsOpenShift(false); onClose(); }}>Save shift</button>
         </>
       }
     >
@@ -3188,7 +3358,7 @@ function SwapRequestModal({ open, onClose, currentUser, users, schedule, shift, 
           <button
             className="rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white transition hover:bg-brand-darker"
             onClick={() => {
-              if (!peerId) return alert("Pick a coworker.");
+              if (!peerId) return notify("Pick a coworker.");
               onSubmit({
                 from_user_id: requestUser.id,
                 to_user_id: peerId,
@@ -3411,7 +3581,7 @@ function PendingApprovalsPanel({ users, schedules, swaps, timeOffRequests, openS
   );
 }
 
-function ProfilePanel({ currentUser, canEditWage, onSave }) {
+function ProfilePanel({ currentUser, canEditWage, onSave, onDeleteAccount }) {
   const [form, setForm] = useState(() => ({
     full_name: currentUser.full_name || "",
     phone: currentUser.phone || "",
@@ -3427,6 +3597,9 @@ function ProfilePanel({ currentUser, canEditWage, onSave }) {
   }));
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setForm({
@@ -3442,6 +3615,8 @@ function ProfilePanel({ currentUser, canEditWage, onSave }) {
       confirm_password: "",
       wage: currentUser.wage ?? "",
     });
+    setDeletePassword("");
+    setDeleteError("");
   }, [currentUser]);
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -3469,6 +3644,20 @@ function ProfilePanel({ currentUser, canEditWage, onSave }) {
       setStatus("Profile saved.");
     } catch (err) {
       setError(err.message || "Unable to save profile.");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!onDeleteAccount || deleting) return;
+    setDeleteError("");
+    setStatus("");
+    setDeleting(true);
+    try {
+      await onDeleteAccount({ current_password: deletePassword });
+    } catch (err) {
+      setDeleteError(err.message || "Unable to delete account.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -3512,6 +3701,28 @@ function ProfilePanel({ currentUser, canEditWage, onSave }) {
         {status && <div className="rounded-xl border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{status}</div>}
         <div className="flex justify-end">
           <button className="rounded-xl border border-brand-dark bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-darker" onClick={handleSave}>Save</button>
+        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+          <div className="text-sm font-semibold text-red-800">Delete account</div>
+          <div className="mt-1 text-xs text-red-700/90">This permanently removes your login and personal profile data from this workspace.</div>
+          <div className="mt-3 grid gap-2">
+            <TextInput
+              label="Current password (required for password-based accounts)"
+              type="password"
+              value={deletePassword}
+              onChange={setDeletePassword}
+            />
+            {deleteError && <div className="rounded-lg border border-red-300 bg-white px-3 py-2 text-xs text-red-700">{deleteError}</div>}
+            <div className="flex justify-end">
+              <button
+                className="rounded-xl border border-red-700 bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete account"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -3779,7 +3990,7 @@ function UnavailabilityAdmin({ users, list, onAdd, onUpdate, onDelete }) {
   }, [users, list]);
 
   const save = () => {
-    if (!userId) return alert('Pick an employee');
+    if (!userId) return notify('Pick an employee');
     if (editing) {
       onUpdate({ id: editing.id, user_id: userId, kind: 'weekly', weekday: Number(weekday), start_hhmm: start, end_hhmm: end, notes });
       setEditing(null);

@@ -1,0 +1,14 @@
+Use case: social ad
+Primary request: creator/influencer-style "POV" ad for Shiftway replacing spreadsheet scheduling
+Scene/background: stylized phone and desktop UI environment with energetic transitions
+Subject: spreadsheet-like clutter transforms into Shiftway workflow screens
+Action: beat 1 (0-2s) messy schedule cards and fragmented chats; beat 2 (2-5s) smooth transition to swaps/time-off/messages panels; beat 3 (5-8s) CTA lockup
+Camera: dynamic but controlled motion, then static CTA frame
+Lighting/mood: energetic, clean, optimistic
+Color palette: white, teal, cobalt, charcoal
+Style/format: social-first vertical-safe composition, bold headline text
+Timing/beats: 8-second clip, strong beat change at 2s and 5s
+Audio: upbeat electronic hit, no voice
+Text (verbatim): "POV: you fired your spreadsheet.", "Shiftway keeps shift teams in sync.", "Start free trial"
+Constraints: no real people; no copyrighted characters/music; no unverifiable metrics
+Avoid: text overlap, illegible typography, chaotic motion

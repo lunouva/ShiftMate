@@ -1,0 +1,14 @@
+Use case: social ad
+Primary request: investor-forward teaser for Shiftway as a shift-operations platform
+Scene/background: minimal, premium UI studio space with clean interface panels
+Subject: scheduling board, approvals, and team operations modules
+Action: beat 1 (0-2s) schedule board resolves from chaos; beat 2 (2-5s) swaps and approvals flow through; beat 3 (5-8s) clean CTA frame holds
+Camera: locked frontal UI view with gentle push-in
+Lighting/mood: bright, confident, premium
+Color palette: navy, teal, white, graphite
+Style/format: modern SaaS ad, crisp typography, high legibility
+Timing/beats: 8-second clip, 3 beats with a clear final hold
+Audio: subtle percussive pulse, no voice
+Text (verbatim): "Shiftway", "Schedule. Approve. Operate.", "Start your 14-day free trial"
+Constraints: no real people; no copyrighted logos or characters; no ROI or performance claims
+Avoid: tiny text, heavy blur, rapid shake, flicker

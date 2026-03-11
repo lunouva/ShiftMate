@@ -23,6 +23,13 @@ if (isProd) {
   if (process.env.SESSION_SECRET === "dev-session") missing.push("SESSION_SECRET (must not be dev-session in production)");
 }
 
+if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_PRICE_ID) {
+  missing.push("STRIPE_PRICE_ID (required when STRIPE_SECRET_KEY is set)");
+}
+if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_WEBHOOK_SECRET) {
+  missing.push("STRIPE_WEBHOOK_SECRET (required when STRIPE_SECRET_KEY is set)");
+}
+
 if (missing.length) {
   console.error("[preflight] Missing/invalid required env vars:");
   for (const key of missing) console.error(`- ${key}`);
@@ -94,6 +101,23 @@ for (const origin of parseOrigins()) {
   }
 }
 if (urlErrors > 0) process.exit(1);
+
+const positiveIntChecks = [
+  "JWT_REFRESH_TTL_DAYS",
+  "MAGIC_LINK_TTL_MINUTES",
+  "PASSWORD_RESET_TTL_MINUTES",
+  "EMAIL_VERIFICATION_TTL_HOURS",
+  "GOOGLE_STATE_TTL_MINUTES",
+  "TRIAL_DAYS",
+];
+for (const key of positiveIntChecks) {
+  if (!process.env[key]) continue;
+  const value = Number.parseInt(String(process.env[key]).trim(), 10);
+  if (!Number.isFinite(value) || value <= 0) {
+    console.error(`[preflight] ${key} must be a positive integer. Got: ${process.env[key]}`);
+    process.exit(1);
+  }
+}
 
 const connectTimeoutMs = Number(process.env.PREFLIGHT_DB_TIMEOUT_MS || 5000);
 

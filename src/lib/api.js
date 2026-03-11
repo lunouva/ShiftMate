@@ -20,6 +20,7 @@ const friendlyApiError = (code) => {
     email_in_use: 'That email is already in use. Try signing in instead.',
     invalid_invite: 'This invite link is invalid, expired, or has already been used.',
     invalid_credentials: 'Invalid email or password.',
+    invalid_password: 'Current password is incorrect.',
     missing_token: 'Your session is missing. Please sign in again.',
     invalid_token: 'Your login link or session is no longer valid. Please sign in again.',
     token_expired: 'Your session expired. Please sign in again.',
@@ -32,6 +33,9 @@ const friendlyApiError = (code) => {
     slug_taken: 'That workspace name is already taken. Please choose another.',
     slug_invalid: 'Workspace name can only contain lowercase letters, numbers, and hyphens.',
     billing_required: 'An active subscription is required to access this workspace.',
+    billing_not_configured: 'Billing is not configured yet. Please contact support.',
+    email_verification_required: 'Verify your email address before signing in.',
+    last_owner: 'Transfer ownership first. The last owner account cannot be deleted.',
   };
   return map[String(code || '').toLowerCase()] || '';
 };
