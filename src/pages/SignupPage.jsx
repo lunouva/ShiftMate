@@ -13,7 +13,19 @@ function slugify(str) {
     .slice(0, 63);
 }
 
+const PLAN_LABELS = {
+  starter: { name: 'Starter', price: 'Free', note: 'No credit card required.' },
+  professional: { name: 'Professional', price: '$29/mo per location', note: '14-day free trial. Cancel anytime.' },
+  business: { name: 'Business', price: '$79/mo per location', note: 'Custom onboarding included.' },
+};
+
 export default function SignupPage() {
+  const chosenPlan = (() => {
+    const p = new URLSearchParams(window.location.search).get('plan');
+    return ['starter', 'professional', 'business'].includes(p) ? p : 'professional';
+  })();
+  const planLabel = PLAN_LABELS[chosenPlan];
+
   const [form, setForm] = useState({
     business_name: '',
     workspace_slug: '',
@@ -85,7 +97,7 @@ export default function SignupPage() {
     try {
       const res = await apiFetch('/api/public/signup', {
         method: 'POST',
-        body: { business_name: business_name.trim(), workspace_slug: workspace_slug.trim(), owner_name: owner_name.trim(), email: email.trim(), password },
+        body: { business_name: business_name.trim(), workspace_slug: workspace_slug.trim(), owner_name: owner_name.trim(), email: email.trim(), password, plan: chosenPlan },
       });
 
       // Store token if provided
@@ -143,7 +155,12 @@ export default function SignupPage() {
         <div className="w-full max-w-md">
           <div className="rounded-[2rem] border border-brand-light bg-white p-8 shadow-lg">
             <h1 className="text-2xl font-black text-brand-text mb-1">Create your workspace</h1>
-            <p className="text-sm text-brand-dark/70 mb-6">Set up your team in minutes.</p>
+            <p className="text-sm text-brand-dark/70 mb-1">Set up your team in minutes.</p>
+            <div className="inline-flex items-center gap-2 rounded-lg bg-brand-lightest border border-brand-light px-3 py-1.5 text-xs font-semibold text-brand-dark mb-4">
+              <span>{planLabel.name} plan</span>
+              <span className="text-brand-dark/60">·</span>
+              <span>{planLabel.price}</span>
+            </div>
 
             {error && (
               <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -232,7 +249,7 @@ export default function SignupPage() {
             </form>
 
             <p className="mt-4 text-center text-xs text-brand-dark/60">
-              14-day free trial. No credit card required to start.
+              {planLabel.note}
             </p>
 
             <p className="mt-3 text-center text-xs text-brand-dark/70">

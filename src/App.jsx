@@ -927,6 +927,7 @@ export default function App({ workspaceSlug } = {}) {
   const apiBase = getApiBase(clientSettings);
   const isInviteAcceptRoute = window.location.pathname === "/invite/accept";
   const [billingRequired, setBillingRequired] = useState(false);
+  const [planTier, setPlanTier] = useState('professional');
 
   // Wrapper around apiFetch that auto-injects workspaceSlug and catches 402
   const callApi = (path, opts = {}, settings) => {
@@ -1023,11 +1024,30 @@ export default function App({ workspaceSlug } = {}) {
     if (!hydrated) setLoading(true);
     setApiError(null);
     callApi("/api/state", { token })
-      .then((res) => {
+      .then(async (res) => {
         const next = res?.data || res;
         if (next) setData(next);
         setHydrated(true);
         setApiError(null);
+        // Fetch plan tier and apply feature flag overrides for Starter plan
+        try {
+          const billing = await callApi("/api/billing/status", { token });
+          const tier = billing?.plan_tier || 'professional';
+          setPlanTier(tier);
+          if (tier === 'starter') {
+            setData((d) => ({
+              ...d,
+              feature_flags: {
+                ...(d.feature_flags || defaultFlags()),
+                swapsEnabled: false,
+                openShiftClaimingEnabled: false,
+                messagesEnabled: false,
+                newsfeedEnabled: false,
+                tasksEnabled: false,
+              },
+            }));
+          }
+        } catch (_) { /* non-critical — flags stay at stored values */ }
       })
       .catch(async (err) => {
         if (err instanceof BillingRequiredError) { setLoading(false); return; }
@@ -1697,6 +1717,7 @@ export default function App({ workspaceSlug } = {}) {
         <BillingGate
           currentUser={authUser}
           clientSettings={clientSettings}
+          planTier={planTier}
           onDismiss={() => {
             setBillingRequired(false);
             localStorage.removeItem(TOKEN_KEY);

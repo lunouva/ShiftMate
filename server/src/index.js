@@ -540,6 +540,18 @@ const getOrgBySlug = async (slug) => {
 
 const isBillingStatusActive = (status) => ["active", "trialing"].includes(String(status || "").toLowerCase());
 
+const PLAN_TIER_ORDER = ["starter", "professional", "business"];
+
+const getPlanTierFromPriceId = (priceId) => {
+  if (!priceId) return "professional";
+  const profId = String(process.env.STRIPE_PRICE_ID_PROFESSIONAL || process.env.STRIPE_PRICE_ID || "").trim();
+  const bizId = String(process.env.STRIPE_PRICE_ID_BUSINESS || "").trim();
+  if (bizId && priceId === bizId) return "business";
+  if (profId && priceId === profId) return "professional";
+  // Unknown price ID — assume professional (paid customer)
+  return "professional";
+};
+
 const getBillingStatusByOrgId = async (orgId) => {
   const subRes = await query("SELECT * FROM subscriptions WHERE org_id = $1", [orgId]);
   if (!subRes.rows[0]) return null;
@@ -568,6 +580,22 @@ const requireActiveSubscription = async (req, res, next) => {
     });
   }
   req.billing = billing;
+  next();
+};
+
+const requirePlanTier = (minTier) => (req, res, next) => {
+  const billing = req.billing;
+  if (!billing) return res.status(402).json({ error: "billing_required" });
+  const currentTier = billing.plan_tier || (billing.stripe_subscription_id ? "professional" : "starter");
+  const currentIdx = PLAN_TIER_ORDER.indexOf(currentTier);
+  const minIdx = PLAN_TIER_ORDER.indexOf(minTier);
+  if (currentIdx < minIdx) {
+    return res.status(403).json({
+      error: "plan_upgrade_required",
+      required_tier: minTier,
+      current_tier: currentTier,
+    });
+  }
   next();
 };
 
@@ -864,20 +892,21 @@ const createAuthResponse = async (user, extra = {}) => {
   };
 };
 
-const upsertSubscriptionFromStripe = async ({ orgId, customerId, subscriptionId, status, plan, currentPeriodEnd, trialEndsAt }) => {
+const upsertSubscriptionFromStripe = async ({ orgId, customerId, subscriptionId, status, plan, planTier, currentPeriodEnd, trialEndsAt }) => {
   await query(
-    `INSERT INTO subscriptions (org_id, stripe_customer_id, stripe_subscription_id, status, plan, current_period_end, trial_ends_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+    `INSERT INTO subscriptions (org_id, stripe_customer_id, stripe_subscription_id, status, plan, plan_tier, current_period_end, trial_ends_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
      ON CONFLICT (org_id)
      DO UPDATE SET
        stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, subscriptions.stripe_customer_id),
        stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, subscriptions.stripe_subscription_id),
        status = EXCLUDED.status,
        plan = EXCLUDED.plan,
+       plan_tier = COALESCE(EXCLUDED.plan_tier, subscriptions.plan_tier),
        current_period_end = EXCLUDED.current_period_end,
        trial_ends_at = EXCLUDED.trial_ends_at,
        updated_at = now()`,
-    [orgId, customerId || null, subscriptionId || null, status || "inactive", plan || null, currentPeriodEnd || null, trialEndsAt || null]
+    [orgId, customerId || null, subscriptionId || null, status || "inactive", plan || null, planTier || null, currentPeriodEnd || null, trialEndsAt || null]
   );
 };
 
@@ -959,6 +988,7 @@ const syncStripeSubscription = async (subscriptionLike, fallbackOrgId = null) =>
     ? new Date(Number(subscriptionLike.trial_end) * 1000)
     : null;
   const plan = subscriptionLike.items?.data?.[0]?.price?.id || subscriptionLike.plan?.id || null;
+  const planTier = getPlanTierFromPriceId(plan);
 
   await upsertSubscriptionFromStripe({
     orgId,
@@ -966,6 +996,7 @@ const syncStripeSubscription = async (subscriptionLike, fallbackOrgId = null) =>
     subscriptionId,
     status: subscriptionLike.status || "inactive",
     plan,
+    planTier,
     currentPeriodEnd,
     trialEndsAt,
   });
@@ -1037,11 +1068,13 @@ app.post("/api/public/signup", authRateLimiter, async (req, res) => {
     owner_name,
     email,
     password,
+    plan,
   } = req.body || {};
   const normalizedEmail = normalizeEmailInput(email);
   const ownerName = String(owner_name || "").trim();
   const orgName = deriveOrgNameFromIdentity({ companyName: business_name, displayName: ownerName, email: normalizedEmail });
   const desiredSlug = normalizeSlugInput(workspace_slug || deriveSlugFromName(orgName));
+  const chosenTier = ["starter", "professional", "business"].includes(plan) ? plan : "professional";
 
   if (!orgName || !ownerName || !normalizedEmail || !password || !isValidWorkspaceSlug(desiredSlug)) {
     return res.status(400).json({ error: "missing_fields" });
@@ -1064,6 +1097,23 @@ app.post("/api/public/signup", authRateLimiter, async (req, res) => {
       await sendEmailVerificationLink({ user, redirectUrl: APP_URL, correlationId: req.requestId });
     }
 
+    // Starter plan: activate immediately, no Stripe checkout needed
+    if (chosenTier === "starter") {
+      await upsertSubscriptionFromStripe({
+        orgId: org.id,
+        customerId: null,
+        subscriptionId: null,
+        status: "active",
+        plan: "starter",
+        planTier: "starter",
+        currentPeriodEnd: null,
+        trialEndsAt: null,
+      });
+      const authResponse = await createAuthResponse(user, { data, workspace_slug: org.slug });
+      return res.json(authResponse);
+    }
+
+    // Paid plans: redirect to Stripe checkout
     const checkoutUrl = await createCheckoutSessionForOrg({ org, ownerUser: user });
     const authResponse = await createAuthResponse(user, {
       data,
@@ -1500,9 +1550,11 @@ app.get("/api/billing/status", auth, async (req, res) => {
   const org = orgRes.rows[0];
   if (!org) return res.status(404).json({ error: "not_found" });
   const billing = await ensureOrgSubscription(req.user.org_id);
+  const resolvedPlanTier = billing?.plan_tier || (billing?.stripe_subscription_id ? "professional" : "starter");
   res.json({
     status: billing?.status || "inactive",
     plan: billing?.plan || null,
+    plan_tier: resolvedPlanTier,
     trial_end: billing?.trial_ends_at || null,
     current_period_end: billing?.current_period_end || null,
     slug: org.slug || null,

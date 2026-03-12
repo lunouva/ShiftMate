@@ -5,10 +5,12 @@ import { apiFetch, TOKEN_KEY } from '../lib/api.js';
  * BillingGate — shown when the API returns HTTP 402 (billing_required).
  * Owners/managers can reactivate. Employees see a contact-manager message.
  */
-export default function BillingGate({ currentUser, onDismiss, clientSettings }) {
+export default function BillingGate({ currentUser, onDismiss, clientSettings, planTier }) {
   const isOwnerOrManager = currentUser?.role === 'owner' || currentUser?.role === 'manager';
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const isStarterPlan = planTier === 'starter';
 
   const handleReactivate = async () => {
     setError('');
@@ -39,12 +41,16 @@ export default function BillingGate({ currentUser, onDismiss, clientSettings }) 
           🔒
         </div>
 
-        <h2 className="text-xl font-black text-brand-text mb-2">Subscription required</h2>
+        <h2 className="text-xl font-black text-brand-text mb-2">
+          {isStarterPlan ? 'Upgrade to unlock' : 'Subscription required'}
+        </h2>
 
         {isOwnerOrManager ? (
           <>
             <p className="text-sm text-brand-dark/80 mb-6">
-              Your workspace subscription is inactive. Reactivate to restore full access for your team.
+              {isStarterPlan
+                ? 'This feature requires a Professional plan. Upgrade to unlock shift swaps, messaging, tasks, and more.'
+                : 'Your workspace subscription is inactive. Reactivate to restore full access for your team.'}
             </p>
 
             {error && (
@@ -59,8 +65,16 @@ export default function BillingGate({ currentUser, onDismiss, clientSettings }) 
                 disabled={loading}
                 className="w-full rounded-xl bg-brand-dark py-2.5 text-sm font-bold text-white transition hover:bg-brand-darker disabled:opacity-60"
               >
-                {loading ? 'Loading…' : 'Reactivate subscription →'}
+                {loading ? 'Loading…' : isStarterPlan ? 'Upgrade to Professional →' : 'Reactivate subscription →'}
               </button>
+              {!isStarterPlan && (
+                <a
+                  href="/pricing"
+                  className="text-sm text-brand-dark/60 hover:text-brand-dark transition"
+                >
+                  View plans
+                </a>
+              )}
               {onDismiss && (
                 <button
                   onClick={onDismiss}
@@ -74,7 +88,9 @@ export default function BillingGate({ currentUser, onDismiss, clientSettings }) 
         ) : (
           <>
             <p className="text-sm text-brand-dark/80 mb-6">
-              Your workspace subscription is currently inactive. Please contact your manager or owner to reactivate access.
+              {isStarterPlan
+                ? 'This feature requires a Professional plan. Contact your manager or owner to upgrade.'
+                : 'Your workspace subscription is currently inactive. Please contact your manager or owner to reactivate access.'}
             </p>
             {onDismiss && (
               <button

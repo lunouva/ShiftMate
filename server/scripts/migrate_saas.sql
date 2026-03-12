@@ -44,3 +44,13 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_org_id_idx ON subscriptions(org_id);
 CREATE INDEX IF NOT EXISTS subscriptions_stripe_customer_id_idx ON subscriptions(stripe_customer_id);
 CREATE INDEX IF NOT EXISTS subscriptions_stripe_subscription_id_idx ON subscriptions(stripe_subscription_id);
+
+-- 5. Add plan_tier for semantic tier tracking
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_tier text;
+
+UPDATE subscriptions
+SET plan_tier = CASE
+  WHEN stripe_subscription_id IS NOT NULL THEN 'professional'
+  ELSE 'starter'
+END
+WHERE plan_tier IS NULL;
