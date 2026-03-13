@@ -125,6 +125,12 @@ const rangesOverlap = (aStart, aEnd, bStart, bEnd) => Math.max(aStart, bStart) <
 
 const hoursBetween = (a, b, breakMin = 0) => Math.max(0, (safeDate(b) - safeDate(a) - (Number(breakMin) || 0) * 60000) / 3600000);
 const formatCurrency = (value) => `$${(Number(value) || 0).toFixed(2)}`;
+const formatFileSize = (bytes) => {
+  const size = Number(bytes) || 0;
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  if (size >= 1024) return `${Math.round(size / 1024)} KB`;
+  return `${size} B`;
+};
 const getInitials = (name) => String(name || "")
   .split(/\s+/)
   .filter(Boolean)
@@ -1461,7 +1467,7 @@ export default function App({ workspaceSlug } = {}) {
     }
   };
 
-  const saveProfile = async ({ full_name, phone, pronouns, birthday, emergency_contact, email, current_password, new_password, wage }) => {
+  const saveProfile = async ({ full_name, phone, pronouns, birthday, emergency_contact, email, current_password, new_password, wage, attachments }) => {
     const nextPayload = {
       full_name: String(full_name || "").trim(),
       phone: String(phone || "").trim(),
@@ -1475,6 +1481,7 @@ export default function App({ workspaceSlug } = {}) {
       current_password: String(current_password || ""),
       new_password: String(new_password || ""),
       wage: wage === "" || wage == null ? "" : Number(wage),
+      attachments: Array.isArray(attachments) ? attachments : [],
     };
 
     if (!nextPayload.full_name) throw new Error("Full name is required.");
@@ -1495,6 +1502,7 @@ export default function App({ workspaceSlug } = {}) {
           pronouns: nextPayload.pronouns,
           birthday: nextPayload.birthday,
           emergency_contact: nextPayload.emergency_contact,
+          attachments: nextPayload.attachments,
           wage: nextPayload.wage,
           ...(nextPayload.new_password ? { password: nextPayload.new_password } : {}),
         } : user),
@@ -1514,6 +1522,7 @@ export default function App({ workspaceSlug } = {}) {
         pronouns: nextPayload.pronouns,
         birthday: nextPayload.birthday,
         emergency_contact: nextPayload.emergency_contact,
+        attachments: nextPayload.attachments,
         wage: nextPayload.wage,
       } : user),
     }));
@@ -1816,6 +1825,20 @@ function InnerApp(props) {
   const [headerProfileOpen, setHeaderProfileOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState("general");
 
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    const handleEscape = (event) => {
+      if (event.key === "Escape") setMobileMenuOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [mobileMenuOpen]);
+
   const flags = data.feature_flags || defaultFlags();
   const isManager = currentUser?.role !== "employee";
   const isOwner = currentUser?.role === "owner";
@@ -1855,6 +1878,7 @@ function InnerApp(props) {
   }
 
   const shiftWeek = (delta) => setWeekStart((s) => fmtDate(startOfWeek(addDays(s, delta * 7), flags.weekStartsOn)));
+  const showWeekControls = tab === "schedule";
   const handlePrint = () => window.print();
   const openProfileTab = () => {
     setTab("profile");
@@ -1961,21 +1985,23 @@ function InnerApp(props) {
 
       {mobileMenuOpen && (
         <div className="print-hidden fixed inset-0 z-40 bg-black/30 md:hidden" onClick={() => setMobileMenuOpen(false)}>
-          <div className="h-full w-[280px] rounded-r-[2rem] bg-brand-darker p-4 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex h-full w-[min(88vw,340px)] flex-col rounded-r-[2rem] bg-brand-darker p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <img src={shiftwayLogoMono} alt="ShiftWay" className="mb-1 h-7 w-auto invert" />
                 <div className="text-xs text-white/70">{currentStateUser.full_name}</div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">{currentStateUser.role}</div>
               </div>
               <button className="rounded-xl p-2 hover:bg-white/10" onClick={() => setMobileMenuOpen(false)}>✕</button>
             </div>
-            <div className="space-y-1">
+            <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/55">Navigation</div>
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pb-2">
               {navItems.map((item) => (
-                <TabBtn key={`mobile-${item.id}`} id={item.id} tab={tab} setTab={(next) => { setTab(next); setMobileMenuOpen(false); }} label={item.label} icon={item.icon} badge={item.badgeKey ? navBadgeCounts[item.badgeKey] : null} vertical />
+                <TabBtn key={`mobile-${item.id}`} id={item.id} tab={tab} setTab={(next) => { setTab(next); setMobileMenuOpen(false); }} label={item.label} icon={item.icon} badge={item.badgeKey ? navBadgeCounts[item.badgeKey] : null} vertical showLabel />
               ))}
-              {isManager && <TabBtn id="requests" tab={tab} setTab={(next) => { setTab(next); setMobileMenuOpen(false); }} label="Time Off" icon="🗂" vertical />}
+              {isManager && <TabBtn id="requests" tab={tab} setTab={(next) => { setTab(next); setMobileMenuOpen(false); }} label="Time Off" icon="🗂" vertical showLabel />}
             </div>
-            <button className="mt-4 w-full rounded-xl bg-white px-4 py-2 font-semibold text-brand-dark" onClick={logout}>Logout</button>
+            <button className="mt-3 w-full rounded-xl border border-red-300/30 bg-red-500/15 px-4 py-2.5 font-semibold text-red-100" onClick={logout}>Logout</button>
           </div>
         </div>
       )}
@@ -2011,7 +2037,7 @@ function InnerApp(props) {
                 </div>
                 <AvatarBadge name={currentStateUser.full_name} className="h-11 w-11" />
               </button>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className={`grid gap-2 ${showWeekControls ? "sm:grid-cols-2 lg:grid-cols-3" : "sm:grid-cols-1"}`}>
                 <label className="grid gap-1.5 text-sm">
                   <span className="text-sm font-medium text-brand-text">Location</span>
                   <select className="rounded-xl border border-gray-200/80 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
@@ -2020,15 +2046,19 @@ function InnerApp(props) {
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1.5 text-sm">
-                  <span className="text-sm font-medium text-brand-text">Week</span>
-                  <input type="date" value={weekStart} onChange={(e) => setWeekStart(fmtDate(startOfWeek(e.target.value, flags.weekStartsOn)))} className="rounded-xl border border-gray-200/80 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
-                </label>
-                <div className="flex items-end gap-2">
-                  <button className="rounded-xl border border-brand-light bg-white px-4 py-2 text-sm font-medium text-brand-dark/90 transition hover:border-brand hover:bg-brand-lightest" onClick={()=>shiftWeek(-1)}>Prev</button>
-                  <button className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-darker" onClick={()=> setWeekStart(fmtDate(startOfWeek(today(), flags.weekStartsOn)))}>Today</button>
-                  <button className="rounded-xl border border-brand-light bg-white px-4 py-2 text-sm font-medium text-brand-dark/90 transition hover:border-brand hover:bg-brand-lightest" onClick={()=>shiftWeek(1)}>Next</button>
-                </div>
+                {showWeekControls && (
+                  <>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-sm font-medium text-brand-text">Week</span>
+                      <input type="date" value={weekStart} onChange={(e) => setWeekStart(fmtDate(startOfWeek(e.target.value, flags.weekStartsOn)))} className="rounded-xl border border-gray-200/80 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
+                    </label>
+                    <div className="flex items-end gap-2">
+                      <button className="rounded-xl border border-brand-light bg-white px-4 py-2 text-sm font-medium text-brand-dark/90 transition hover:border-brand hover:bg-brand-lightest" onClick={()=>shiftWeek(-1)}>Prev</button>
+                      <button className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-darker" onClick={()=> setWeekStart(fmtDate(startOfWeek(today(), flags.weekStartsOn)))}>Today</button>
+                      <button className="rounded-xl border border-brand-light bg-white px-4 py-2 text-sm font-medium text-brand-dark/90 transition hover:border-brand hover:bg-brand-lightest" onClick={()=>shiftWeek(1)}>Next</button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -3594,6 +3624,8 @@ function ProfilePanel({ currentUser, canEditWage, onSave, onDeleteAccount }) {
     new_password: "",
     confirm_password: "",
     wage: currentUser.wage ?? "",
+    attachments: Array.isArray(currentUser.attachments) ? currentUser.attachments : [],
+    attachment_label: "",
   }));
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -3614,12 +3646,36 @@ function ProfilePanel({ currentUser, canEditWage, onSave, onDeleteAccount }) {
       new_password: "",
       confirm_password: "",
       wage: currentUser.wage ?? "",
+      attachments: Array.isArray(currentUser.attachments) ? currentUser.attachments : [],
+      attachment_label: "",
     });
     setDeletePassword("");
     setDeleteError("");
   }, [currentUser]);
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const onUploadPaperwork = (fileList, docType) => {
+    const normalizedType = String(docType || "").trim() || "General document";
+    const incoming = Array.from(fileList || []).map((file) => ({
+      id: uid(),
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+      label: normalizedType,
+      uploaded_at: new Date().toISOString(),
+    }));
+    if (!incoming.length) return;
+    setForm((prev) => ({ ...prev, attachments: [...(prev.attachments || []), ...incoming] }));
+  };
+
+  const removePaperwork = (attachmentId) => {
+    setForm((prev) => ({
+      ...prev,
+      attachments: (prev.attachments || []).filter((attachment) => attachment.id !== attachmentId),
+    }));
+  };
 
   const handleSave = async () => {
     setError("");
@@ -3639,8 +3695,9 @@ function ProfilePanel({ currentUser, canEditWage, onSave, onDeleteAccount }) {
         current_password: form.current_password,
         new_password: form.new_password,
         wage: canEditWage ? form.wage : currentUser.wage,
+        attachments: form.attachments,
       });
-      setForm((prev) => ({ ...prev, current_password: "", new_password: "", confirm_password: "" }));
+      setForm((prev) => ({ ...prev, current_password: "", new_password: "", confirm_password: "", attachment_label: "" }));
       setStatus("Profile saved.");
     } catch (err) {
       setError(err.message || "Unable to save profile.");
@@ -3697,6 +3754,42 @@ function ProfilePanel({ currentUser, canEditWage, onSave, onDeleteAccount }) {
         <TextInput label="Current password" type="password" value={form.current_password} onChange={(value) => setField("current_password", value)} />
         <TextInput label="New password" type="password" value={form.new_password} onChange={(value) => setField("new_password", value)} />
         <TextInput label="Confirm new password" type="password" value={form.confirm_password} onChange={(value) => setField("confirm_password", value)} />
+        <div className="pt-2 font-semibold">Paperwork</div>
+        <div className="grid gap-2 md:grid-cols-[1fr_auto] md:items-end">
+          <TextInput
+            label="Document label"
+            value={form.attachment_label || ""}
+            onChange={(value) => setField("attachment_label", value)}
+            placeholder="I-9, W-4, certification, etc."
+          />
+          <label className="grid gap-1 text-sm">
+            <span className="text-brand-text/75">Upload files</span>
+            <input
+              type="file"
+              multiple
+              onChange={(event) => {
+                onUploadPaperwork(event.target.files, form.attachment_label);
+                event.target.value = "";
+              }}
+              className="rounded-xl border border-brand-light px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+        {(form.attachments || []).length > 0 ? (
+          <div className="space-y-2 rounded-xl border border-brand-light bg-brand-lightest p-3">
+            {(form.attachments || []).map((attachment) => (
+              <div key={attachment.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs text-brand-text/80">
+                <div>
+                  <div className="font-medium text-brand-text">{attachment.name}</div>
+                  <div>{attachment.label || "General document"} • {formatFileSize(attachment.size)}</div>
+                </div>
+                <button className="rounded-lg border border-brand-light px-2 py-1 text-[11px] text-brand-dark transition hover:bg-brand-light" onClick={() => removePaperwork(attachment.id)}>Remove</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-brand-light px-3 py-2 text-xs text-brand-text/70">No paperwork uploaded yet.</div>
+        )}
         {error && <div className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         {status && <div className="rounded-xl border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{status}</div>}
         <div className="flex justify-end">
@@ -4152,20 +4245,70 @@ function TasksPanel({ users, currentUser, tasks, templates, onAdd, onSetStatus, 
 function MessagesPanel({ users, currentUser, messages, onSend }) {
   const [peerId, setPeerId] = useState(users.find(u=>u.id!==currentUser.id)?.id || '');
   const [body, setBody] = useState('');
-  const thread = messages.filter(m => (m.from_user_id===currentUser.id && m.to_user_id===peerId) || (m.to_user_id===currentUser.id && m.from_user_id===peerId));
+  const conversationSummaries = useMemo(() => {
+    const peers = users.filter((u) => u.id !== currentUser.id);
+    return peers
+      .map((peer) => {
+        const thread = messages
+          .filter((m) => (m.from_user_id === currentUser.id && m.to_user_id === peer.id) || (m.to_user_id === currentUser.id && m.from_user_id === peer.id))
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        return {
+          peer,
+          lastMessage: thread[0] || null,
+        };
+      })
+      .sort((a, b) => {
+        if (!a.lastMessage && !b.lastMessage) return a.peer.full_name.localeCompare(b.peer.full_name);
+        if (!a.lastMessage) return 1;
+        if (!b.lastMessage) return -1;
+        return new Date(b.lastMessage.created_at) - new Date(a.lastMessage.created_at);
+      });
+  }, [users, currentUser.id, messages]);
+
+  useEffect(() => {
+    if (!conversationSummaries.some((c) => c.peer.id === peerId)) {
+      setPeerId(conversationSummaries[0]?.peer.id || '');
+    }
+  }, [conversationSummaries, peerId]);
+
+  const thread = messages
+    .filter((m) => (m.from_user_id === currentUser.id && m.to_user_id === peerId) || (m.to_user_id === currentUser.id && m.from_user_id === peerId))
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   return (
-    <div className="grid gap-4 md:grid-cols-[260px_1fr]">
-      <div className="rounded-2xl border p-3">
-        <h4 className="mb-2 font-semibold">Conversations</h4>
-        <select className="w-full rounded-xl border px-3 py-2" value={peerId} onChange={(e)=>setPeerId(e.target.value)}>
-          {users.filter(u=>u.id!==currentUser.id).map(u=> <option key={u.id} value={u.id}>{u.full_name}</option>)}
-        </select>
+    <div className="grid gap-4 md:grid-cols-[340px_1fr]">
+      <div className="rounded-3xl border border-brand-light/70 bg-white p-3 shadow-sm">
+        <h4 className="mb-3 px-1 text-lg font-semibold text-brand-text">Conversations</h4>
+        <div className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-100 bg-white">
+          {conversationSummaries.length === 0 && <div className="p-4 text-sm text-gray-600">No teammates yet.</div>}
+          {conversationSummaries.map(({ peer, lastMessage }) => {
+            const active = peer.id === peerId;
+            const who = lastMessage?.from_user_id === currentUser.id ? 'You' : peer.full_name.split(' ')[0];
+            const preview = lastMessage ? `${who}: ${lastMessage.body}` : 'No messages yet';
+            return (
+              <button
+                key={peer.id}
+                type="button"
+                onClick={() => setPeerId(peer.id)}
+                className={`flex w-full items-start gap-3 px-3 py-3 text-left transition ${active ? 'bg-brand-lightest' : 'bg-white hover:bg-brand-lightest/50'}`}
+              >
+                <AvatarBadge name={peer.full_name} className="h-12 w-12 shrink-0 bg-gray-300 text-xl text-white" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="truncate text-2xl font-semibold leading-tight text-slate-700">{peer.full_name}</div>
+                    <div className="shrink-0 text-xs text-slate-400">{lastMessage ? new Date(lastMessage.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}</div>
+                  </div>
+                  <div className="truncate text-sm text-slate-500">{preview}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <div className="rounded-2xl border p-3">
-        <h4 className="mb-2 font-semibold">Chat</h4>
-        <div className="mb-3 max-h-72 overflow-auto rounded-xl border p-2">
-          {thread.length===0 && <div className="text-sm text-gray-600">No messages yet.</div>}
+      <div className="rounded-3xl border border-brand-light/70 bg-white p-3 shadow-sm">
+        <h4 className="mb-2 text-lg font-semibold text-brand-text">Chat</h4>
+        <div className="mb-3 max-h-72 overflow-auto rounded-2xl border border-gray-200 bg-gray-50 p-3">
+          {thread.length===0 && <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">No messages yet.</div>}
           {thread.map(m => (
             <div key={m.id} className={`mb-2 flex ${m.from_user_id===currentUser.id ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[70%] rounded-xl border px-2 py-1 text-sm ${m.from_user_id===currentUser.id ? 'bg-brand text-white border-brand-dark' : 'bg-brand-lightest border-brand-light text-brand-text'}`}>
@@ -4177,7 +4320,7 @@ function MessagesPanel({ users, currentUser, messages, onSend }) {
         </div>
         <div className="flex gap-2">
           <input className="flex-1 rounded-xl border px-3 py-2 text-sm" value={body} onChange={(e)=>setBody(e.target.value)} placeholder="Type a message" />
-          <button className="rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white transition hover:bg-brand-darker" onClick={()=>{ onSend(currentUser.id, peerId, body); setBody(''); }}>Send</button>
+          <button className="rounded-xl border border-brand-dark bg-brand-dark px-4 py-2 text-sm text-white transition hover:bg-brand-darker disabled:cursor-not-allowed disabled:opacity-60" disabled={!peerId} onClick={()=>{ onSend(currentUser.id, peerId, body); setBody(''); }}>Send</button>
         </div>
       </div>
     </div>
