@@ -335,16 +335,16 @@ function Section({ title, right, children, flush = false }) {
         <h2 className="text-xl font-bold text-brand-text">{title}</h2>
         <div>{right}</div>
       </div>
-      <div className={`rounded-[1.75rem] border border-brand-light bg-white shadow-sm ${flush ? "overflow-hidden" : "p-6"}`}>{children}</div>
+      <div className={`rounded-2xl border border-brand-light/70 bg-white shadow-sm ${flush ? "overflow-hidden" : "p-6"}`}>{children}</div>
     </div>
   );
 }
 
 function Pill({ children, tone = "default", pulse = false }) {
-  const toneCls = tone === "success" ? "text-green-700" : tone === "warn" ? "text-amber-700" : tone === "danger" ? "text-red-700" : "text-gray-700";
-  const bgCls = tone === "success" ? "bg-green-50 border-green-300" : tone === "warn" ? "bg-amber-50 border-amber-300" : tone === "danger" ? "bg-red-50 border-red-300" : "bg-gray-50 border-gray-300";
+  const toneCls = tone === "success" ? "text-green-700" : tone === "warn" ? "text-amber-700" : tone === "danger" ? "text-red-700" : "text-gray-600";
+  const bgCls = tone === "success" ? "bg-green-50/80 border-green-200" : tone === "warn" ? "bg-amber-50/80 border-amber-200" : tone === "danger" ? "bg-red-50/80 border-red-200" : "bg-white border-gray-300/80";
   const pulseCls = pulse ? "motion-safe:animate-pulse" : "";
-  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs transition-colors ${bgCls} ${toneCls} ${pulseCls}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs transition-colors ${bgCls} ${toneCls} ${pulseCls}`}>{children}</span>;
 }
 
 function Toolbar({ children }) {
@@ -733,12 +733,12 @@ function WeekGrid({
                 const dayUnav = (byUserUnav[emp.id] || []).filter((ua) => ua.kind === "date" ? ua.date === dayKey : ua.weekday === day.getDay());
                 const dayTimeOff = (byUserTimeOff[emp.id] || []).filter((r)=> isDateWithin(dayKey, r.date_from, r.date_to));
                 return (
-                  <div key={`${emp.id}-${dayKey}-mobile`} className="rounded-2xl bg-brand-lightest p-3">
-                    <div className="mb-2 flex items-center justify-between">
+                  <div key={`${emp.id}-${dayKey}-mobile`} className="rounded-2xl bg-brand-lightest/70 p-2.5">
+                    <div className="mb-1.5 flex items-center justify-between">
                       <div className={`rounded-xl px-3 py-1 text-sm font-bold ${dayKey === todayKey ? "bg-white text-brand-dark shadow-sm" : "text-brand-dark"}`}>{fmtDateLabel(day)}</div>
                       <button className="rounded-lg p-2 text-brand-dark transition hover:bg-white" onClick={() => onCreate(emp.id, day)}>+</button>
                     </div>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       {showTimeOffChips && dayTimeOff.map((r)=> (
                         <div key={r.id} className={`rounded-xl px-3 py-2 text-xs font-medium ${r.status === "approved" ? "bg-green-50 text-green-700" : r.status === "pending" ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}>
                           Time off {r.status}
@@ -752,7 +752,7 @@ function WeekGrid({
                       {dayShifts.map((s) => {
                         const tone = positionColors?.[s.position_id] || POSITION_COLOR_PALETTE[0];
                         return (
-                          <div key={s.id} className={`group rounded-xl border border-brand-light bg-white px-3 py-3 shadow-sm transition hover:scale-[1.02] hover:shadow-md ${tone.border}`}>
+                          <div key={s.id} className={`group rounded-xl border border-brand-light/70 bg-white px-3 py-2.5 shadow-sm transition hover:shadow-md ${tone.border}`}>
                             <div className="flex items-start justify-between gap-3">
                               <div className="flex items-center gap-2">
                                 <AvatarBadge name={emp.full_name} className="h-6 w-6 text-[10px]" />
@@ -771,7 +771,7 @@ function WeekGrid({
                         );
                       })}
                       {dayShifts.length === 0 && dayUnav.length === 0 && dayTimeOff.length === 0 && (
-                        <button className="flex min-h-12 w-full items-center justify-center rounded-xl border border-dashed border-brand/40 bg-white text-sm font-medium text-brand-dark transition hover:border-brand hover:bg-brand-lightest" onClick={() => onCreate(emp.id, day)}>
+                        <button className="flex min-h-10 w-full items-center justify-center rounded-xl border border-brand/30 bg-white text-sm font-medium text-brand-dark/90 transition hover:border-brand hover:bg-brand-lightest/80" onClick={() => onCreate(emp.id, day)}>
                           + Add shift
                         </button>
                       )}
@@ -1940,9 +1940,9 @@ function InnerApp(props) {
         </div>
       </aside>
 
-      <div className="print-hidden sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-brand-light/70 bg-brand-lightest/95 px-4 py-4 backdrop-blur md:hidden">
+      <div className="print-hidden sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-brand-light/60 bg-brand-lightest/90 px-4 py-3 backdrop-blur md:hidden">
         <div className="flex items-center gap-3">
-          <button className="rounded-xl bg-white p-2 text-brand-dark shadow-sm" onClick={() => setMobileMenuOpen((v) => !v)}>☰</button>
+          <button className="rounded-xl bg-white/90 p-2 text-brand-dark shadow-sm" onClick={() => setMobileMenuOpen((v) => !v)}>☰</button>
           <div>
             <img src={shiftwayLogo} alt="ShiftWay" className="h-7 w-auto" />
             <div className="text-xs text-brand-dark">{navItems.find((item) => item.id === tab)?.label || "Schedule"}</div>
@@ -1950,7 +1950,7 @@ function InnerApp(props) {
         </div>
         <button
           type="button"
-          className="rounded-2xl border border-brand-light bg-white p-1 shadow-sm transition hover:border-brand"
+          className="rounded-2xl border border-brand-light/70 bg-white p-1 shadow-sm transition hover:border-brand"
           onClick={() => setHeaderProfileOpen((v) => !v)}
           aria-label="Open profile menu"
           aria-haspopup="dialog"
@@ -1988,19 +1988,19 @@ function InnerApp(props) {
         onLogout={logout}
       />
 
-      <main className="space-y-6 px-4 py-4 pb-24 md:pl-[240px] md:pr-6 md:py-6 md:pb-6">
-        <header className="print-hidden rounded-[1.75rem] border border-brand-light bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <main className="space-y-6 bg-[#f4fbff] px-4 py-4 pb-24 md:pl-[240px] md:pr-6 md:py-6 md:pb-6">
+        <header className="print-hidden rounded-2xl border border-brand-light/70 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="text-sm font-semibold uppercase tracking-[0.18em] text-brand-dark/70">{isManager ? "Schedule Hub" : "Personal Schedule"}</div>
               <h1 className="text-3xl font-black text-brand-text">{isManager ? "Build the week with confidence" : "Your week at a glance"}</h1>
-              <div className="mt-1 text-sm text-brand-dark">Friendly scheduling for {data.locations.find((entry) => entry.id === locationId)?.name || "your team"}.</div>
+              <div className="mt-1 text-sm text-brand-text/80">Friendly scheduling for {data.locations.find((entry) => entry.id === locationId)?.name || "your team"}.</div>
               <DailyNugget />
             </div>
-            <div className="flex flex-col gap-3 lg:items-end">
+            <div className="flex flex-col gap-2.5 lg:items-end">
               <button
                 type="button"
-                className="inline-flex items-center gap-3 self-start rounded-2xl border border-brand-light bg-brand-lightest/70 px-3 py-2 text-left transition hover:border-brand hover:bg-brand-lightest lg:self-end"
+                className="inline-flex items-center gap-3 self-start rounded-2xl border border-brand-light/70 bg-brand-lightest/60 px-3 py-1.5 text-left transition hover:border-brand hover:bg-brand-lightest lg:self-end"
                 onClick={() => setHeaderProfileOpen((v) => !v)}
                 aria-label="Open profile menu"
                 aria-haspopup="dialog"
@@ -2011,10 +2011,10 @@ function InnerApp(props) {
                 </div>
                 <AvatarBadge name={currentStateUser.full_name} className="h-11 w-11" />
               </button>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="grid gap-1.5 text-sm">
                   <span className="text-sm font-medium text-brand-text">Location</span>
-                  <select className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+                  <select className="rounded-xl border border-gray-200/80 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
                     {data.locations.map((l) => (
                       <option key={l.id} value={l.id}>{l.name}</option>
                     ))}
@@ -2022,12 +2022,12 @@ function InnerApp(props) {
                 </label>
                 <label className="grid gap-1.5 text-sm">
                   <span className="text-sm font-medium text-brand-text">Week</span>
-                  <input type="date" value={weekStart} onChange={(e) => setWeekStart(fmtDate(startOfWeek(e.target.value, flags.weekStartsOn)))} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
+                  <input type="date" value={weekStart} onChange={(e) => setWeekStart(fmtDate(startOfWeek(e.target.value, flags.weekStartsOn)))} className="rounded-xl border border-gray-200/80 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
                 </label>
                 <div className="flex items-end gap-2">
-                  <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark transition hover:bg-brand-lightest" onClick={()=>shiftWeek(-1)}>Prev</button>
+                  <button className="rounded-xl border border-brand-light bg-white px-4 py-2 text-sm font-medium text-brand-dark/90 transition hover:border-brand hover:bg-brand-lightest" onClick={()=>shiftWeek(-1)}>Prev</button>
                   <button className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-darker" onClick={()=> setWeekStart(fmtDate(startOfWeek(today(), flags.weekStartsOn)))}>Today</button>
-                  <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark transition hover:bg-brand-lightest" onClick={()=>shiftWeek(1)}>Next</button>
+                  <button className="rounded-xl border border-brand-light bg-white px-4 py-2 text-sm font-medium text-brand-dark/90 transition hover:border-brand hover:bg-brand-lightest" onClick={()=>shiftWeek(1)}>Next</button>
                 </div>
               </div>
             </div>
@@ -2061,14 +2061,14 @@ function InnerApp(props) {
             )
           }
         >
-          <div className="mb-4 grid gap-3 px-6 pt-6 md:grid-cols-4">
+          <div className="mb-4 grid gap-3 px-6 pt-5 md:grid-cols-4">
             <SummaryStat hint="Count of scheduled shifts for this location and week." label="Total shifts" value={(schedule?.shifts || []).length} />
             <SummaryStat hint="Sum of all scheduled hours (breaks already excluded)." label="Scheduled hours" value={`${totalScheduledHours.toFixed(2)} h`} />
             <SummaryStat hint="Hourly wages × planned hours." label="Estimated labor cost" value={formatCurrency(totalLaborCost)} />
             <SummaryStat hint="Shifts still waiting for someone to claim them." label="Open shifts" value={openShifts.length} />
           </div>
 
-          <div className="mb-4 mx-6 flex flex-wrap gap-2 rounded-2xl border border-brand-light bg-brand-lightest p-3 text-sm">
+          <div className="mb-4 mx-6 flex flex-wrap gap-2 rounded-2xl border border-brand-light/70 bg-brand-lightest/60 p-3 text-sm">
             {positions.map((position) => (
               <div key={position.id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1">
                 <span className={`inline-block h-2.5 w-2.5 rounded-full ${positionColors[position.id]?.dot || "bg-brand"}`} />
