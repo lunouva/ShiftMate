@@ -141,6 +141,15 @@ for (const method of ["get", "post", "put", "patch", "delete"]) {
 
 const normalizeEmailInput = (value) => String(value || "").trim().toLowerCase();
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const normalizeAttachmentMeta = (attachment = {}) => ({
+  id: String(attachment.id || randomToken(6)),
+  name: String(attachment.name || "").trim(),
+  label: String(attachment.label || "General document").trim() || "General document",
+  size: Math.max(0, Number(attachment.size) || 0),
+  type: String(attachment.type || "").trim(),
+  lastModified: Number(attachment.lastModified) || null,
+  uploaded_at: String(attachment.uploaded_at || new Date().toISOString()),
+});
 const parsePositiveIntEnv = (name, fallback) => {
   const value = Number.parseInt(String(process.env[name] || "").trim(), 10);
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -1370,6 +1379,7 @@ app.patch("/api/me", auth, async (req, res) => {
   const hasEmergencyContact = hasOwn(payload, "emergency_contact");
   const hasEmail = hasOwn(payload, "email");
   const hasWage = hasOwn(payload, "wage");
+  const hasAttachments = hasOwn(payload, "attachments");
   const trimmedName = hasFullName ? String(payload.full_name || "").trim() : String(req.user.full_name || "").trim();
   const normalizedEmail = hasEmail ? normalizeEmailInput(payload.email) : String(req.user.email || "").trim().toLowerCase();
   const wantsPasswordChange = String(payload.new_password || "").trim().length > 0;
@@ -1416,6 +1426,9 @@ app.patch("/api/me", auth, async (req, res) => {
   const nextWage = hasWage
     ? (payload.wage === "" || payload.wage == null ? "" : payload.wage)
     : (previousStateUser.wage ?? "");
+  const nextAttachments = hasAttachments
+    ? (Array.isArray(payload.attachments) ? payload.attachments : []).map(normalizeAttachmentMeta).filter((attachment) => attachment.name)
+    : (Array.isArray(previousStateUser.attachments) ? previousStateUser.attachments : []);
   const mergedStateUser = {
     ...previousStateUser,
     id: req.user.id,
@@ -1428,7 +1441,7 @@ app.patch("/api/me", auth, async (req, res) => {
     birthday: hasBirthday ? String(payload.birthday || "").trim() : String(previousStateUser.birthday || ""),
     pronouns: hasPronouns ? String(payload.pronouns || "").trim() : String(previousStateUser.pronouns || ""),
     emergency_contact: nextEmergency,
-    attachments: Array.isArray(previousStateUser.attachments) ? previousStateUser.attachments : [],
+    attachments: nextAttachments,
     notes: String(previousStateUser.notes || ""),
     wage: nextWage,
   };
