@@ -1855,6 +1855,7 @@ function InnerApp(props) {
   }
 
   const shiftWeek = (delta) => setWeekStart((s) => fmtDate(startOfWeek(addDays(s, delta * 7), flags.weekStartsOn)));
+  const showWeekControls = tab === "schedule";
   const handlePrint = () => window.print();
   const openProfileTab = () => {
     setTab("profile");
@@ -2011,7 +2012,7 @@ function InnerApp(props) {
                 </div>
                 <AvatarBadge name={currentStateUser.full_name} className="h-11 w-11" />
               </button>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className={`grid gap-3 ${showWeekControls ? "sm:grid-cols-2 lg:grid-cols-3" : "sm:grid-cols-1"}`}>
                 <label className="grid gap-1.5 text-sm">
                   <span className="text-sm font-medium text-brand-text">Location</span>
                   <select className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
@@ -2020,15 +2021,19 @@ function InnerApp(props) {
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1.5 text-sm">
-                  <span className="text-sm font-medium text-brand-text">Week</span>
-                  <input type="date" value={weekStart} onChange={(e) => setWeekStart(fmtDate(startOfWeek(e.target.value, flags.weekStartsOn)))} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
-                </label>
-                <div className="flex items-end gap-2">
-                  <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark transition hover:bg-brand-lightest" onClick={()=>shiftWeek(-1)}>Prev</button>
-                  <button className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-darker" onClick={()=> setWeekStart(fmtDate(startOfWeek(today(), flags.weekStartsOn)))}>Today</button>
-                  <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark transition hover:bg-brand-lightest" onClick={()=>shiftWeek(1)}>Next</button>
-                </div>
+                {showWeekControls && (
+                  <>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-sm font-medium text-brand-text">Week</span>
+                      <input type="date" value={weekStart} onChange={(e) => setWeekStart(fmtDate(startOfWeek(e.target.value, flags.weekStartsOn)))} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" />
+                    </label>
+                    <div className="flex items-end gap-2">
+                      <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark transition hover:bg-brand-lightest" onClick={()=>shiftWeek(-1)}>Prev</button>
+                      <button className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-darker" onClick={()=> setWeekStart(fmtDate(startOfWeek(today(), flags.weekStartsOn)))}>Today</button>
+                      <button className="rounded-xl border border-brand bg-white px-4 py-2 text-sm font-medium text-brand-dark transition hover:bg-brand-lightest" onClick={()=>shiftWeek(1)}>Next</button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
