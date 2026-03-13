@@ -4224,20 +4224,70 @@ function TasksPanel({ users, currentUser, tasks, templates, onAdd, onSetStatus, 
 function MessagesPanel({ users, currentUser, messages, onSend }) {
   const [peerId, setPeerId] = useState(users.find(u=>u.id!==currentUser.id)?.id || '');
   const [body, setBody] = useState('');
-  const thread = messages.filter(m => (m.from_user_id===currentUser.id && m.to_user_id===peerId) || (m.to_user_id===currentUser.id && m.from_user_id===peerId));
+  const conversationSummaries = useMemo(() => {
+    const peers = users.filter((u) => u.id !== currentUser.id);
+    return peers
+      .map((peer) => {
+        const thread = messages
+          .filter((m) => (m.from_user_id === currentUser.id && m.to_user_id === peer.id) || (m.to_user_id === currentUser.id && m.from_user_id === peer.id))
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        return {
+          peer,
+          lastMessage: thread[0] || null,
+        };
+      })
+      .sort((a, b) => {
+        if (!a.lastMessage && !b.lastMessage) return a.peer.full_name.localeCompare(b.peer.full_name);
+        if (!a.lastMessage) return 1;
+        if (!b.lastMessage) return -1;
+        return new Date(b.lastMessage.created_at) - new Date(a.lastMessage.created_at);
+      });
+  }, [users, currentUser.id, messages]);
+
+  useEffect(() => {
+    if (!conversationSummaries.some((c) => c.peer.id === peerId)) {
+      setPeerId(conversationSummaries[0]?.peer.id || '');
+    }
+  }, [conversationSummaries, peerId]);
+
+  const thread = messages
+    .filter((m) => (m.from_user_id === currentUser.id && m.to_user_id === peerId) || (m.to_user_id === currentUser.id && m.from_user_id === peerId))
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   return (
-    <div className="grid gap-4 md:grid-cols-[260px_1fr]">
-      <div className="rounded-2xl border p-3">
-        <h4 className="mb-2 font-semibold">Conversations</h4>
-        <select className="w-full rounded-xl border px-3 py-2" value={peerId} onChange={(e)=>setPeerId(e.target.value)}>
-          {users.filter(u=>u.id!==currentUser.id).map(u=> <option key={u.id} value={u.id}>{u.full_name}</option>)}
-        </select>
+    <div className="grid gap-4 md:grid-cols-[340px_1fr]">
+      <div className="rounded-3xl border border-brand-light/70 bg-white p-3 shadow-sm">
+        <h4 className="mb-3 px-1 text-lg font-semibold text-brand-text">Conversations</h4>
+        <div className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-100 bg-white">
+          {conversationSummaries.length === 0 && <div className="p-4 text-sm text-gray-600">No teammates yet.</div>}
+          {conversationSummaries.map(({ peer, lastMessage }) => {
+            const active = peer.id === peerId;
+            const who = lastMessage?.from_user_id === currentUser.id ? 'You' : peer.full_name.split(' ')[0];
+            const preview = lastMessage ? `${who}: ${lastMessage.body}` : 'No messages yet';
+            return (
+              <button
+                key={peer.id}
+                type="button"
+                onClick={() => setPeerId(peer.id)}
+                className={`flex w-full items-start gap-3 px-3 py-3 text-left transition ${active ? 'bg-brand-lightest' : 'bg-white hover:bg-brand-lightest/50'}`}
+              >
+                <AvatarBadge name={peer.full_name} className="h-12 w-12 shrink-0 bg-gray-300 text-xl text-white" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="truncate text-2xl font-semibold leading-tight text-slate-700">{peer.full_name}</div>
+                    <div className="shrink-0 text-xs text-slate-400">{lastMessage ? new Date(lastMessage.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}</div>
+                  </div>
+                  <div className="truncate text-sm text-slate-500">{preview}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <div className="rounded-2xl border p-3">
-        <h4 className="mb-2 font-semibold">Chat</h4>
-        <div className="mb-3 max-h-72 overflow-auto rounded-xl border p-2">
-          {thread.length===0 && <div className="text-sm text-gray-600">No messages yet.</div>}
+      <div className="rounded-3xl border border-brand-light/70 bg-white p-3 shadow-sm">
+        <h4 className="mb-2 text-lg font-semibold text-brand-text">Chat</h4>
+        <div className="mb-3 max-h-72 overflow-auto rounded-2xl border border-gray-200 bg-gray-50 p-3">
+          {thread.length===0 && <div className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">No messages yet.</div>}
           {thread.map(m => (
             <div key={m.id} className={`mb-2 flex ${m.from_user_id===currentUser.id ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[70%] rounded-xl border px-2 py-1 text-sm ${m.from_user_id===currentUser.id ? 'bg-brand text-white border-brand-dark' : 'bg-brand-lightest border-brand-light text-brand-text'}`}>
@@ -4249,7 +4299,7 @@ function MessagesPanel({ users, currentUser, messages, onSend }) {
         </div>
         <div className="flex gap-2">
           <input className="flex-1 rounded-xl border px-3 py-2 text-sm" value={body} onChange={(e)=>setBody(e.target.value)} placeholder="Type a message" />
-          <button className="rounded-xl border border-brand-dark bg-brand-dark px-3 py-2 text-sm text-white transition hover:bg-brand-darker" onClick={()=>{ onSend(currentUser.id, peerId, body); setBody(''); }}>Send</button>
+          <button className="rounded-xl border border-brand-dark bg-brand-dark px-4 py-2 text-sm text-white transition hover:bg-brand-darker disabled:cursor-not-allowed disabled:opacity-60" disabled={!peerId} onClick={()=>{ onSend(currentUser.id, peerId, body); setBody(''); }}>Send</button>
         </div>
       </div>
     </div>
