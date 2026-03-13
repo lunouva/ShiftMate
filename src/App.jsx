@@ -1825,6 +1825,20 @@ function InnerApp(props) {
   const [headerProfileOpen, setHeaderProfileOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState("general");
 
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    const handleEscape = (event) => {
+      if (event.key === "Escape") setMobileMenuOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [mobileMenuOpen]);
+
   const flags = data.feature_flags || defaultFlags();
   const isManager = currentUser?.role !== "employee";
   const isOwner = currentUser?.role === "owner";
@@ -1970,21 +1984,23 @@ function InnerApp(props) {
 
       {mobileMenuOpen && (
         <div className="print-hidden fixed inset-0 z-40 bg-black/30 md:hidden" onClick={() => setMobileMenuOpen(false)}>
-          <div className="h-full w-[280px] rounded-r-[2rem] bg-brand-darker p-4 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex h-full w-[min(88vw,340px)] flex-col rounded-r-[2rem] bg-brand-darker p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <img src={shiftwayLogoMono} alt="ShiftWay" className="mb-1 h-7 w-auto invert" />
                 <div className="text-xs text-white/70">{currentStateUser.full_name}</div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">{currentStateUser.role}</div>
               </div>
               <button className="rounded-xl p-2 hover:bg-white/10" onClick={() => setMobileMenuOpen(false)}>✕</button>
             </div>
-            <div className="space-y-1">
+            <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/55">Navigation</div>
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pb-2">
               {navItems.map((item) => (
-                <TabBtn key={`mobile-${item.id}`} id={item.id} tab={tab} setTab={(next) => { setTab(next); setMobileMenuOpen(false); }} label={item.label} icon={item.icon} badge={item.badgeKey ? navBadgeCounts[item.badgeKey] : null} vertical />
+                <TabBtn key={`mobile-${item.id}`} id={item.id} tab={tab} setTab={(next) => { setTab(next); setMobileMenuOpen(false); }} label={item.label} icon={item.icon} badge={item.badgeKey ? navBadgeCounts[item.badgeKey] : null} vertical showLabel />
               ))}
-              {isManager && <TabBtn id="requests" tab={tab} setTab={(next) => { setTab(next); setMobileMenuOpen(false); }} label="Time Off" icon="🗂" vertical />}
+              {isManager && <TabBtn id="requests" tab={tab} setTab={(next) => { setTab(next); setMobileMenuOpen(false); }} label="Time Off" icon="🗂" vertical showLabel />}
             </div>
-            <button className="mt-4 w-full rounded-xl bg-white px-4 py-2 font-semibold text-brand-dark" onClick={logout}>Logout</button>
+            <button className="mt-3 w-full rounded-xl border border-red-300/30 bg-red-500/15 px-4 py-2.5 font-semibold text-red-100" onClick={logout}>Logout</button>
           </div>
         </div>
       )}
