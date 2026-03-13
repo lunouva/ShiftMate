@@ -49,9 +49,9 @@ export function MarketingHeader({ variant = "default" }) {
 
   return (
     <nav className="border-b border-brand-light bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-6 py-4">
+      <div className="mx-auto flex min-h-[78px] max-w-7xl items-center justify-between gap-6 px-6 py-4 md:min-h-[84px] md:px-8">
         <Link to="/" className="shrink-0">
-          <img src={shiftwayLogo} alt="Shiftway" className="h-10 w-auto md:h-11" />
+          <img src={shiftwayLogo} alt="Shiftway" className="h-11 w-auto md:h-12" />
         </Link>
 
         <div className="flex items-center gap-3 lg:gap-6">
@@ -61,7 +61,7 @@ export function MarketingHeader({ variant = "default" }) {
                 <HeaderLink
                   key={link.to}
                   item={link}
-                  className="text-sm font-medium text-brand-dark transition hover:text-brand-darker"
+                  className="text-sm font-semibold text-brand-dark transition hover:text-brand-darker"
                 />
               ))}
             </div>
@@ -74,8 +74,8 @@ export function MarketingHeader({ variant = "default" }) {
                 item={link}
                 className={
                   link.primary
-                    ? "rounded-xl border border-brand-dark bg-brand-dark px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-darker"
-                    : "text-sm font-medium text-brand-dark transition hover:text-brand-darker"
+                    ? "rounded-xl border border-brand-dark bg-brand-dark px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-darker"
+                    : "text-sm font-semibold text-brand-dark transition hover:text-brand-darker"
                 }
               />
             ))}
@@ -85,12 +85,12 @@ export function MarketingHeader({ variant = "default" }) {
 
       {!isCheckout && (
         <div className="border-t border-brand-light/60 lg:hidden">
-          <div className="mx-auto flex max-w-7xl flex-wrap gap-4 px-6 py-3">
+          <div className="mx-auto flex max-w-7xl flex-wrap gap-5 px-6 py-3 md:px-8">
             {marketingNavLinks.map((link) => (
               <HeaderLink
                 key={`mobile-${link.to}`}
                 item={link}
-                className="text-sm font-medium text-brand-dark transition hover:text-brand-darker"
+                className="text-sm font-semibold text-brand-dark transition hover:text-brand-darker"
               />
             ))}
           </div>
