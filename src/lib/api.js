@@ -32,6 +32,8 @@ const friendlyApiError = (code) => {
     service_unavailable: 'The backend is temporarily unavailable. Please retry in a moment.',
     slug_taken: 'That workspace name is already taken. Please choose another.',
     slug_invalid: 'Workspace name can only contain lowercase letters, numbers, and hyphens.',
+    invalid_plan: 'That plan is not available.',
+    invalid_billing_period: 'That billing period is not available.',
     billing_required: 'An active subscription is required to access this workspace.',
     billing_not_configured: 'Billing is not configured yet. Please contact support.',
     email_verification_required: 'Verify your email address before signing in.',

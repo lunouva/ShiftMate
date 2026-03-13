@@ -13,6 +13,19 @@ import twilio from "twilio";
 import webpush from "web-push";
 import Stripe from "stripe";
 import pool, { query } from "./db.js";
+import {
+  DEFAULT_BILLING_PERIOD,
+  DEFAULT_PLAN_KEY,
+  FREE_PLAN_KEY,
+  appendQueryParams,
+  buildStoredPlanCode,
+  getSelectionForStripePriceId,
+  getStripePriceIdForSelection,
+  isPaidPlanKey,
+  normalizeBillingPeriod,
+  normalizeBillingPlan,
+  parseStoredPlanCode,
+} from "./billing.js";
 import { removeUserFromOrgState } from "./state_utils.js";
 
 dotenv.config();
@@ -549,20 +562,63 @@ const getOrgBySlug = async (slug) => {
 
 const isBillingStatusActive = (status) => ["active", "trialing"].includes(String(status || "").toLowerCase());
 
+const createInitialSubscriptionValues = ({ planKey = DEFAULT_PLAN_KEY, billingPeriod = DEFAULT_BILLING_PERIOD } = {}) => {
+  const normalizedPlanKey = normalizeBillingPlan(planKey) || DEFAULT_PLAN_KEY;
+  if (normalizedPlanKey === FREE_PLAN_KEY) {
+    return {
+      status: "active",
+      plan: buildStoredPlanCode(FREE_PLAN_KEY),
+      trialEndsAt: null,
+      currentPeriodEnd: null,
+    };
+  }
+
+  const trialEndsAt = TRIAL_DAYS > 0 ? new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000) : null;
+  return {
+    status: trialEndsAt ? "trialing" : "inactive",
+    plan: buildStoredPlanCode(normalizedPlanKey, billingPeriod),
+    trialEndsAt,
+    currentPeriodEnd: trialEndsAt,
+  };
+};
+
+const expireLocalTrialIfNeeded = async (subscription) => {
+  if (!subscription) return null;
+  if (String(subscription.status || "").toLowerCase() !== "trialing") return subscription;
+  if (subscription.stripe_subscription_id) return subscription;
+
+  const trialEndsAt = subscription.trial_ends_at ? new Date(subscription.trial_ends_at) : null;
+  if (!trialEndsAt || Number.isNaN(trialEndsAt.getTime()) || trialEndsAt.getTime() > Date.now()) {
+    return subscription;
+  }
+
+  const updatedRes = await query(
+    "UPDATE subscriptions SET status = $2, updated_at = now() WHERE id = $1 RETURNING *",
+    [subscription.id, "inactive"]
+  );
+  return updatedRes.rows[0] || subscription;
+};
+
 const getBillingStatusByOrgId = async (orgId) => {
   const subRes = await query("SELECT * FROM subscriptions WHERE org_id = $1", [orgId]);
   if (!subRes.rows[0]) return null;
-  return subRes.rows[0];
+  return expireLocalTrialIfNeeded(subRes.rows[0]);
 };
 
-const ensureOrgSubscription = async (orgId) => {
+const ensureOrgSubscription = async (orgId, { planKey = DEFAULT_PLAN_KEY, billingPeriod = DEFAULT_BILLING_PERIOD } = {}) => {
   const existing = await getBillingStatusByOrgId(orgId);
   if (existing) return existing;
 
-  const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+  const initialSubscription = createInitialSubscriptionValues({ planKey, billingPeriod });
   const subRes = await query(
     "INSERT INTO subscriptions (org_id, status, plan, trial_ends_at, current_period_end) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-    [orgId, "trialing", "starter", trialEndsAt, trialEndsAt]
+    [
+      orgId,
+      initialSubscription.status,
+      initialSubscription.plan,
+      initialSubscription.trialEndsAt,
+      initialSubscription.currentPeriodEnd,
+    ]
   );
   return subRes.rows[0];
 };
@@ -587,6 +643,8 @@ const createOrgAndOwner = async ({
   email,
   passwordHash = null,
   emailVerifiedAt = null,
+  initialPlanKey = DEFAULT_PLAN_KEY,
+  initialBillingPeriod = DEFAULT_BILLING_PERIOD,
 }) => {
   const normalizedEmail = normalizeEmailInput(email);
   const existing = await query("SELECT id FROM users WHERE email = $1", [normalizedEmail]);
@@ -607,7 +665,10 @@ const createOrgAndOwner = async ({
   );
   const user = userRes.rows[0];
   const data = await ensureOrgState(org.id, location.id, user);
-  const subscription = await ensureOrgSubscription(org.id);
+  const subscription = await ensureOrgSubscription(org.id, {
+    planKey: initialPlanKey,
+    billingPeriod: initialBillingPeriod,
+  });
   return { org, location, user, data, subscription };
 };
 
@@ -890,24 +951,52 @@ const upsertSubscriptionFromStripe = async ({ orgId, customerId, subscriptionId,
   );
 };
 
-const createCheckoutSessionForOrg = async ({ org, ownerUser }) => {
-  const priceId = String(process.env.STRIPE_PRICE_ID || "").trim();
-  if (!stripe || !priceId) return null;
+const createCheckoutSessionForOrg = async ({
+  org,
+  ownerUser,
+  planKey = DEFAULT_PLAN_KEY,
+  billingPeriod = DEFAULT_BILLING_PERIOD,
+}) => {
+  const normalizedPlanKey = normalizeBillingPlan(planKey) || DEFAULT_PLAN_KEY;
+  const normalizedBillingPeriod = normalizeBillingPeriod(billingPeriod) || DEFAULT_BILLING_PERIOD;
+  const priceId = getStripePriceIdForSelection({
+    planKey: normalizedPlanKey,
+    billingPeriod: normalizedBillingPeriod,
+  });
+  if (!stripe || !isPaidPlanKey(normalizedPlanKey) || !priceId) return null;
 
-  const currentSubscription = await ensureOrgSubscription(org.id);
+  const currentSubscription = await ensureOrgSubscription(org.id, {
+    planKey: normalizedPlanKey,
+    billingPeriod: normalizedBillingPeriod,
+  });
+  const pendingSubscription = createInitialSubscriptionValues({
+    planKey: normalizedPlanKey,
+    billingPeriod: normalizedBillingPeriod,
+  });
   let customerId = currentSubscription?.stripe_customer_id || null;
 
   if (!customerId) {
     const customer = await stripe.customers.create({
       email: ownerUser?.email || undefined,
       name: org.name,
-      metadata: { org_id: org.id, org_slug: org.slug || "" },
+      metadata: {
+        org_id: org.id,
+        org_slug: org.slug || "",
+        plan_key: normalizedPlanKey,
+        billing_period: normalizedBillingPeriod,
+      },
     });
     customerId = customer.id;
   }
 
-  const successUrl = String(process.env.BILLING_SUCCESS_URL || `${APP_URL}/billing/success`);
-  const cancelUrl = String(process.env.BILLING_CANCEL_URL || `${APP_URL}/billing/cancel`);
+  const successUrl = appendQueryParams(
+    String(process.env.BILLING_SUCCESS_URL || `${APP_URL}/billing/success`),
+    { plan: normalizedPlanKey, billing_period: normalizedBillingPeriod }
+  );
+  const cancelUrl = appendQueryParams(
+    String(process.env.BILLING_CANCEL_URL || `${APP_URL}/billing/cancel`),
+    { plan: normalizedPlanKey, billing_period: normalizedBillingPeriod }
+  );
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
     customer: customerId,
@@ -917,11 +1006,16 @@ const createCheckoutSessionForOrg = async ({ org, ownerUser }) => {
     metadata: {
       org_id: org.id,
       org_slug: org.slug || "",
+      plan_key: normalizedPlanKey,
+      billing_period: normalizedBillingPeriod,
     },
     subscription_data: {
+      ...(TRIAL_DAYS > 0 ? { trial_period_days: TRIAL_DAYS } : {}),
       metadata: {
         org_id: org.id,
         org_slug: org.slug || "",
+        plan_key: normalizedPlanKey,
+        billing_period: normalizedBillingPeriod,
       },
     },
   });
@@ -930,10 +1024,10 @@ const createCheckoutSessionForOrg = async ({ org, ownerUser }) => {
     orgId: org.id,
     customerId,
     subscriptionId: currentSubscription?.stripe_subscription_id || null,
-    status: currentSubscription?.status || "trialing",
-    plan: currentSubscription?.plan || "starter",
-    currentPeriodEnd: currentSubscription?.current_period_end || null,
-    trialEndsAt: currentSubscription?.trial_ends_at || null,
+    status: pendingSubscription.status,
+    plan: buildStoredPlanCode(normalizedPlanKey, normalizedBillingPeriod),
+    currentPeriodEnd: pendingSubscription.currentPeriodEnd,
+    trialEndsAt: pendingSubscription.trialEndsAt,
   });
 
   return session.url || null;
@@ -967,7 +1061,15 @@ const syncStripeSubscription = async (subscriptionLike, fallbackOrgId = null) =>
   const trialEndsAt = subscriptionLike.trial_end
     ? new Date(Number(subscriptionLike.trial_end) * 1000)
     : null;
-  const plan = subscriptionLike.items?.data?.[0]?.price?.id || subscriptionLike.plan?.id || null;
+  const stripePriceId = subscriptionLike.items?.data?.[0]?.price?.id || subscriptionLike.plan?.id || null;
+  const priceSelection = getSelectionForStripePriceId({ priceId: stripePriceId });
+  const metadataPlanKey = normalizeBillingPlan(subscriptionLike.metadata?.plan_key);
+  const metadataBillingPeriod = normalizeBillingPeriod(subscriptionLike.metadata?.billing_period) || DEFAULT_BILLING_PERIOD;
+  const plan = priceSelection.planKey
+    ? buildStoredPlanCode(priceSelection.planKey, priceSelection.billingPeriod)
+    : metadataPlanKey
+      ? buildStoredPlanCode(metadataPlanKey, metadataBillingPeriod)
+      : null;
 
   await upsertSubscriptionFromStripe({
     orgId,
@@ -1047,11 +1149,21 @@ app.post("/api/public/signup", authRateLimiter, async (req, res) => {
     email,
     password,
   } = req.body || {};
+  const requestedPlanInput = req.body?.plan;
+  const requestedBillingPeriodInput = req.body?.billing_period || req.body?.period;
+  const requestedPlanKey = normalizeBillingPlan(requestedPlanInput) || DEFAULT_PLAN_KEY;
+  const requestedBillingPeriod = normalizeBillingPeriod(requestedBillingPeriodInput) || DEFAULT_BILLING_PERIOD;
   const normalizedEmail = normalizeEmailInput(email);
   const ownerName = String(owner_name || "").trim();
   const orgName = deriveOrgNameFromIdentity({ companyName: business_name, displayName: ownerName, email: normalizedEmail });
   const desiredSlug = normalizeSlugInput(workspace_slug || deriveSlugFromName(orgName));
 
+  if (hasOwn(req.body, "plan") && !normalizeBillingPlan(requestedPlanInput)) {
+    return res.status(400).json({ error: "invalid_plan" });
+  }
+  if ((hasOwn(req.body, "billing_period") || hasOwn(req.body, "period")) && !normalizeBillingPeriod(requestedBillingPeriodInput)) {
+    return res.status(400).json({ error: "invalid_billing_period" });
+  }
   if (!orgName || !ownerName || !normalizedEmail || !password || !isValidWorkspaceSlug(desiredSlug)) {
     return res.status(400).json({ error: "missing_fields" });
   }
@@ -1067,16 +1179,27 @@ app.post("/api/public/signup", authRateLimiter, async (req, res) => {
       email: normalizedEmail,
       passwordHash,
       emailVerifiedAt: REQUIRE_EMAIL_VERIFICATION ? null : new Date(),
+      initialPlanKey: requestedPlanKey,
+      initialBillingPeriod: requestedBillingPeriod,
     });
 
     if (REQUIRE_EMAIL_VERIFICATION) {
       await sendEmailVerificationLink({ user, redirectUrl: APP_URL, correlationId: req.requestId });
     }
 
-    const checkoutUrl = await createCheckoutSessionForOrg({ org, ownerUser: user });
+    const checkoutUrl = isPaidPlanKey(requestedPlanKey)
+      ? await createCheckoutSessionForOrg({
+          org,
+          ownerUser: user,
+          planKey: requestedPlanKey,
+          billingPeriod: requestedBillingPeriod,
+        })
+      : null;
     const authResponse = await createAuthResponse(user, {
       data,
       workspace_slug: org.slug,
+      billing_plan: requestedPlanKey,
+      billing_period: requestedBillingPeriod,
       ...(checkoutUrl ? { checkout_url: checkoutUrl } : {}),
     });
     return res.json(authResponse);
@@ -1513,9 +1636,11 @@ app.get("/api/billing/status", auth, async (req, res) => {
   const org = orgRes.rows[0];
   if (!org) return res.status(404).json({ error: "not_found" });
   const billing = await ensureOrgSubscription(req.user.org_id);
+  const billingSelection = parseStoredPlanCode(billing?.plan);
   res.json({
     status: billing?.status || "inactive",
-    plan: billing?.plan || null,
+    plan: billingSelection.planKey || billing?.plan || null,
+    billing_period: billingSelection.billingPeriod || null,
     trial_end: billing?.trial_ends_at || null,
     current_period_end: billing?.current_period_end || null,
     slug: org.slug || null,
@@ -1526,8 +1651,31 @@ app.post("/api/billing/create-checkout-session", auth, requireRole("owner", "man
   const orgRes = await query("SELECT id, slug, name FROM orgs WHERE id = $1", [req.user.org_id]);
   const org = orgRes.rows[0];
   if (!org) return res.status(404).json({ error: "not_found" });
+  const requestedPlanInput = req.body?.plan;
+  const requestedBillingPeriodInput = req.body?.billing_period || req.body?.period;
+  const requestedPlanKey = normalizeBillingPlan(requestedPlanInput);
+  const requestedBillingPeriod = normalizeBillingPeriod(requestedBillingPeriodInput);
+  if (hasOwn(req.body, "plan") && !requestedPlanKey) {
+    return res.status(400).json({ error: "invalid_plan" });
+  }
+  if (requestedPlanKey === FREE_PLAN_KEY) {
+    return res.status(400).json({ error: "invalid_plan" });
+  }
+  if ((hasOwn(req.body, "billing_period") || hasOwn(req.body, "period")) && !requestedBillingPeriod) {
+    return res.status(400).json({ error: "invalid_billing_period" });
+  }
 
-  const checkoutUrl = await createCheckoutSessionForOrg({ org, ownerUser: req.user });
+  const currentBilling = await ensureOrgSubscription(req.user.org_id);
+  const currentSelection = parseStoredPlanCode(currentBilling?.plan);
+  const planKey = requestedPlanKey || (isPaidPlanKey(currentSelection.planKey) ? currentSelection.planKey : DEFAULT_PLAN_KEY);
+  const billingPeriod = requestedBillingPeriod || currentSelection.billingPeriod || DEFAULT_BILLING_PERIOD;
+
+  const checkoutUrl = await createCheckoutSessionForOrg({
+    org,
+    ownerUser: req.user,
+    planKey,
+    billingPeriod,
+  });
   if (!checkoutUrl) {
     return res.status(503).json({ error: "billing_not_configured" });
   }

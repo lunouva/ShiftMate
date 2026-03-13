@@ -1737,7 +1737,14 @@ function BillingSettingsPanel({ clientSettings }) {
     setCheckoutLoading(true);
     try {
       const token = localStorage.getItem(TOKEN_KEY);
-      const res = await apiFetch('/api/billing/create-checkout-session', { token, method: 'POST' }, clientSettings);
+      const checkoutBody = billingStatus?.plan && billingStatus.plan !== 'free'
+        ? { plan: billingStatus.plan, billing_period: billingStatus.billing_period || undefined }
+        : undefined;
+      const res = await apiFetch(
+        '/api/billing/create-checkout-session',
+        { token, method: 'POST', ...(checkoutBody ? { body: checkoutBody } : {}) },
+        clientSettings
+      );
       if (res?.checkout_url) {
         window.location.href = res.checkout_url;
       } else {
@@ -1755,6 +1762,14 @@ function BillingSettingsPanel({ clientSettings }) {
   const statusTone = billingStatus?.status === 'active' || billingStatus?.status === 'trialing' ? 'success'
     : billingStatus?.status === 'past_due' ? 'warn'
     : 'danger';
+  const isFreePlan = billingStatus?.plan === 'free';
+  const manageButtonLabel = checkoutLoading
+    ? 'Loading...'
+    : isFreePlan
+      ? 'Upgrade to Core'
+      : (billingStatus?.status === 'active' || billingStatus?.status === 'trialing')
+        ? 'Manage subscription'
+        : 'Reactivate subscription';
 
   return (
     <div className="space-y-4">
@@ -1772,6 +1787,12 @@ function BillingSettingsPanel({ clientSettings }) {
                 <div>
                   <div className="text-xs text-brand-dark/60 uppercase tracking-wide">Plan</div>
                   <div className="font-semibold">{billingStatus.plan}</div>
+                </div>
+              )}
+              {billingStatus.billing_period && (
+                <div>
+                  <div className="text-xs text-brand-dark/60 uppercase tracking-wide">Billing cycle</div>
+                  <div className="font-semibold capitalize">{billingStatus.billing_period}</div>
                 </div>
               )}
               {billingStatus.trial_end && (
@@ -1792,7 +1813,7 @@ function BillingSettingsPanel({ clientSettings }) {
               disabled={checkoutLoading}
               className="rounded-xl border border-brand-dark bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-darker disabled:opacity-60"
             >
-              {checkoutLoading ? 'Loading…' : (billingStatus.status === 'active' || billingStatus.status === 'trialing') ? 'Manage subscription' : 'Reactivate subscription'}
+              {manageButtonLabel}
             </button>
           </div>
         ) : (

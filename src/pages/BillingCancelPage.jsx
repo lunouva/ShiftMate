@@ -1,26 +1,38 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  DEFAULT_BILLING_PERIOD,
+  DEFAULT_PLAN_KEY,
+  buildSignupPath,
+  normalizeBillingPeriod,
+  normalizePlanKey,
+} from "../lib/pricing.js";
 
 export default function BillingCancelPage() {
+  const [searchParams] = useSearchParams();
+  const planKey = normalizePlanKey(searchParams.get("plan")) || DEFAULT_PLAN_KEY;
+  const billingPeriod = normalizeBillingPeriod(searchParams.get("billing_period")) || DEFAULT_BILLING_PERIOD;
+  const retryPath = buildSignupPath(planKey, billingPeriod);
+
   return (
     <div className="min-h-screen bg-brand-lightest flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-md rounded-[2rem] border border-brand-light bg-white p-8 shadow-lg text-center">
         <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full bg-amber-100 text-3xl">
-          ↩
+          X
         </div>
 
         <h1 className="text-2xl font-black text-brand-text mb-2">Checkout canceled</h1>
         <p className="text-sm text-brand-dark/80 mb-6">
-          No worries — nothing was charged. Your workspace details are safe and waiting whenever you're ready.
+          Nothing was charged. Your workspace setup is still there whenever you want to continue.
         </p>
 
         <div className="rounded-xl border border-brand-light bg-brand-lightest p-4 text-sm text-brand-dark/80 mb-6">
-          <strong>No data was lost.</strong> If you already created an account, it's still there. Just complete checkout to activate your workspace.
+          <strong>No data was lost.</strong> Finish checkout whenever you are ready and keep moving with the same plan selection.
         </div>
 
         <div className="flex flex-col gap-3">
           <Link
-            to="/signup"
+            to={retryPath}
             className="block w-full rounded-xl bg-brand-dark py-2.5 text-sm font-bold text-white text-center transition hover:bg-brand-darker"
           >
             Try again
@@ -35,7 +47,7 @@ export default function BillingCancelPage() {
             to="/"
             className="text-sm text-brand-dark/60 hover:text-brand-dark transition"
           >
-            ← Back to home
+            Back to home
           </Link>
         </div>
 
