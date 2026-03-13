@@ -125,6 +125,12 @@ const rangesOverlap = (aStart, aEnd, bStart, bEnd) => Math.max(aStart, bStart) <
 
 const hoursBetween = (a, b, breakMin = 0) => Math.max(0, (safeDate(b) - safeDate(a) - (Number(breakMin) || 0) * 60000) / 3600000);
 const formatCurrency = (value) => `$${(Number(value) || 0).toFixed(2)}`;
+const formatFileSize = (bytes) => {
+  const size = Number(bytes) || 0;
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  if (size >= 1024) return `${Math.round(size / 1024)} KB`;
+  return `${size} B`;
+};
 const getInitials = (name) => String(name || "")
   .split(/\s+/)
   .filter(Boolean)
@@ -1461,7 +1467,7 @@ export default function App({ workspaceSlug } = {}) {
     }
   };
 
-  const saveProfile = async ({ full_name, phone, pronouns, birthday, emergency_contact, email, current_password, new_password, wage }) => {
+  const saveProfile = async ({ full_name, phone, pronouns, birthday, emergency_contact, email, current_password, new_password, wage, attachments }) => {
     const nextPayload = {
       full_name: String(full_name || "").trim(),
       phone: String(phone || "").trim(),
@@ -1475,6 +1481,7 @@ export default function App({ workspaceSlug } = {}) {
       current_password: String(current_password || ""),
       new_password: String(new_password || ""),
       wage: wage === "" || wage == null ? "" : Number(wage),
+      attachments: Array.isArray(attachments) ? attachments : [],
     };
 
     if (!nextPayload.full_name) throw new Error("Full name is required.");
@@ -1495,6 +1502,7 @@ export default function App({ workspaceSlug } = {}) {
           pronouns: nextPayload.pronouns,
           birthday: nextPayload.birthday,
           emergency_contact: nextPayload.emergency_contact,
+          attachments: nextPayload.attachments,
           wage: nextPayload.wage,
           ...(nextPayload.new_password ? { password: nextPayload.new_password } : {}),
         } : user),
@@ -1514,6 +1522,7 @@ export default function App({ workspaceSlug } = {}) {
         pronouns: nextPayload.pronouns,
         birthday: nextPayload.birthday,
         emergency_contact: nextPayload.emergency_contact,
+        attachments: nextPayload.attachments,
         wage: nextPayload.wage,
       } : user),
     }));
@@ -3594,6 +3603,8 @@ function ProfilePanel({ currentUser, canEditWage, onSave, onDeleteAccount }) {
     new_password: "",
     confirm_password: "",
     wage: currentUser.wage ?? "",
+    attachments: Array.isArray(currentUser.attachments) ? currentUser.attachments : [],
+    attachment_label: "",
   }));
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -3614,12 +3625,36 @@ function ProfilePanel({ currentUser, canEditWage, onSave, onDeleteAccount }) {
       new_password: "",
       confirm_password: "",
       wage: currentUser.wage ?? "",
+      attachments: Array.isArray(currentUser.attachments) ? currentUser.attachments : [],
+      attachment_label: "",
     });
     setDeletePassword("");
     setDeleteError("");
   }, [currentUser]);
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const onUploadPaperwork = (fileList, docType) => {
+    const normalizedType = String(docType || "").trim() || "General document";
+    const incoming = Array.from(fileList || []).map((file) => ({
+      id: uid(),
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+      label: normalizedType,
+      uploaded_at: new Date().toISOString(),
+    }));
+    if (!incoming.length) return;
+    setForm((prev) => ({ ...prev, attachments: [...(prev.attachments || []), ...incoming] }));
+  };
+
+  const removePaperwork = (attachmentId) => {
+    setForm((prev) => ({
+      ...prev,
+      attachments: (prev.attachments || []).filter((attachment) => attachment.id !== attachmentId),
+    }));
+  };
 
   const handleSave = async () => {
     setError("");
@@ -3639,8 +3674,9 @@ function ProfilePanel({ currentUser, canEditWage, onSave, onDeleteAccount }) {
         current_password: form.current_password,
         new_password: form.new_password,
         wage: canEditWage ? form.wage : currentUser.wage,
+        attachments: form.attachments,
       });
-      setForm((prev) => ({ ...prev, current_password: "", new_password: "", confirm_password: "" }));
+      setForm((prev) => ({ ...prev, current_password: "", new_password: "", confirm_password: "", attachment_label: "" }));
       setStatus("Profile saved.");
     } catch (err) {
       setError(err.message || "Unable to save profile.");
@@ -3697,6 +3733,42 @@ function ProfilePanel({ currentUser, canEditWage, onSave, onDeleteAccount }) {
         <TextInput label="Current password" type="password" value={form.current_password} onChange={(value) => setField("current_password", value)} />
         <TextInput label="New password" type="password" value={form.new_password} onChange={(value) => setField("new_password", value)} />
         <TextInput label="Confirm new password" type="password" value={form.confirm_password} onChange={(value) => setField("confirm_password", value)} />
+        <div className="pt-2 font-semibold">Paperwork</div>
+        <div className="grid gap-2 md:grid-cols-[1fr_auto] md:items-end">
+          <TextInput
+            label="Document label"
+            value={form.attachment_label || ""}
+            onChange={(value) => setField("attachment_label", value)}
+            placeholder="I-9, W-4, certification, etc."
+          />
+          <label className="grid gap-1 text-sm">
+            <span className="text-brand-text/75">Upload files</span>
+            <input
+              type="file"
+              multiple
+              onChange={(event) => {
+                onUploadPaperwork(event.target.files, form.attachment_label);
+                event.target.value = "";
+              }}
+              className="rounded-xl border border-brand-light px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+        {(form.attachments || []).length > 0 ? (
+          <div className="space-y-2 rounded-xl border border-brand-light bg-brand-lightest p-3">
+            {(form.attachments || []).map((attachment) => (
+              <div key={attachment.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs text-brand-text/80">
+                <div>
+                  <div className="font-medium text-brand-text">{attachment.name}</div>
+                  <div>{attachment.label || "General document"} • {formatFileSize(attachment.size)}</div>
+                </div>
+                <button className="rounded-lg border border-brand-light px-2 py-1 text-[11px] text-brand-dark transition hover:bg-brand-light" onClick={() => removePaperwork(attachment.id)}>Remove</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-brand-light px-3 py-2 text-xs text-brand-text/70">No paperwork uploaded yet.</div>
+        )}
         {error && <div className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
         {status && <div className="rounded-xl border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{status}</div>}
         <div className="flex justify-end">
